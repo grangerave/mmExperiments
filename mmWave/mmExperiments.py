@@ -92,7 +92,7 @@ class mmPulseExperiment(FridgeExperiment):
         if setFreqs: self.setup_freq_and_power()
 
     def setVNApulsed(self):
-        self.PNAX.set_timeout(10E3)
+        self.PNAX.set_timeout(120)
         
         #enable subpoint averaging
         self.PNAX.write('SENS:PULSE0:SUBP 1')
@@ -137,10 +137,25 @@ class mmPulseExperiment(FridgeExperiment):
         self.PNAX.write("SENS:PULS3:DEL %.12f" % (self.awg_trig_delay*1e-9))
 
     def setup_freq_and_power(self):
+        """
         #assume initial part of prep() was already run
-        #needs to have expt dictionary set in cfg
+        #needs to have expt dictionary set in cfg with the following:
+        expt = dict(
+            device_n: device index
+            nPtavg: point averages (fastest)
+            nAvgs: points in sweep averages (fast)
+            #optional:
+                ifbw: VNA ifbw
+                read_power: VNA readout power
+                probe_LO_freq: amc mixer LO frequency
+        )
+        """
         self.PNAX.set_span(0)
-        self.PNAX.set_ifbw(self.cfg.expt.ifbw)
+        if 'ifbw' in self.cfg.expt.keys():
+            self.PNAX.set_ifbw(self.cfg.expt.ifbw)
+        else:
+            self.PNAX.set_ifbw(self.cfg.device.readout.ifbw)
+        #TODO configure VNA if path
         if 'read_power' in self.cfg.expt.keys():
             self.PNAX.set_power(self.cfg.expt.read_power)
         else:
