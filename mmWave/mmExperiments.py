@@ -218,3 +218,4 @@ class mmPulseExperiment(FridgeExperiment):
         self.load_pulse(**kwargs)
         self.tek.set_enabled(1,'on')
         self.tek.run()
+        time.sleep(self.cfg.hardware.awg_load_time)

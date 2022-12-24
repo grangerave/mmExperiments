@@ -160,14 +160,14 @@ class FridgeExperiment(Experiment):
             time.sleep(desorbTime/nTimeSteps)
         
         #verify cycle is in desorb phase by checking temp
-        waitForTempBelow(maxDesorbTemp,nStep=nTimeSteps,tempCheckDelay=tempCheckDelay)
+        waitForTempBelow(maxDesorbTemp,nTimeSteps=nTimeSteps,tempCheckDelay=tempCheckDelay)
         if not quiet:print('Cycle Desorbing.')
         
         #calibrations go here
         #TODO run calibration
 
         #wait until cycle is finished by checking temp
-        waitForTempBelow(maxTargetTemp,nStep=nTimeSteps,tempCheckDelay=tempCheckDelay)
+        waitForTempBelow(maxTargetTemp,nTimeSteps=nTimeSteps,tempCheckDelay=tempCheckDelay)
 
         for i in range(nTimeSteps):time.sleep(finalDelay/nTimeSteps) #wait final delay
         if not quiet:print('Cycle finished. Resuming...')
