@@ -136,8 +136,9 @@ def acquireDuringCycle(acquire,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30
 #   call acquireInCycle() instead of acquire()
 
 class FridgeExperiment(Experiment):
-    def __init__(self,**kwargs):
+    def __init__(self,fridge_config=None,**kwargs):
         super().__init__(**kwargs)
+        if fridge_config is None: self.fridge_config = dict(powerOffonWait=True,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120)
 
     def on(self,quiet=False):
         if not quiet: print('Turning Instruments ON')
@@ -178,9 +179,12 @@ class FridgeExperiment(Experiment):
     def acquireDuringCycle(self,powerOffonWait=True,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120,quiet=False,**kwargs):
         #call our own acquire function with the given arguments
         while True:
+            #avoid collecting data if already warm
+            self.waitForCycle(powerOffonWait=powerOffonWait,maxTargetTemp=maxTargetTemp,maxDesorbTemp=maxDesorbTemp,nTimeSteps=nTimeSteps,desorbTime=desorbTime,tempCheckDelay=tempCheckDelay,finalDelay=finalDelay,quiet=quiet)
+            #collect data
             result = self.acquire(**kwargs)
             if self.waitForCycle(powerOffonWait=powerOffonWait,maxTargetTemp=maxTargetTemp,maxDesorbTemp=maxDesorbTemp,nTimeSteps=nTimeSteps,desorbTime=desorbTime,tempCheckDelay=tempCheckDelay,finalDelay=finalDelay,quiet=quiet):
-                break   #the temperature is good
+                break   #the temperature is good. Proceed
         return result
 
     def go(self, save=False, analyze=False, display=False, progress=False,**kwargs):

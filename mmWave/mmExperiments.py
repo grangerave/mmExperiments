@@ -56,9 +56,9 @@ class mmPulseExperiment(FridgeExperiment):
 
     def on(self,quiet=False,stabilize_time=20):
         if not quiet: print('Turning Instruments ON')
-        self.amcMixer.on(stabilize=stabilize_time)
         self.PNAX.set_output(True)
         self.PNAX.set_sweep_mode('CONT')
+        self.amcMixer.on(stabilize=stabilize_time)
         self.tek.run()
 
     def off(self,quiet=False):
