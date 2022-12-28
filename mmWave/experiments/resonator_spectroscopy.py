@@ -23,8 +23,8 @@ class ResonatorSpectroscopyExperiment(mmPulseExperiment):
         expts: number of experiments,
         nPtavg: point averages (fastest),
         nAvgs: points in sweep averages (fast),
-        #not used- 
-           reps: start to finish averages (very slow)
+        reps: start to finish averages (very slow)
+        mixer_on: enable mixer?
         )
     """
 
@@ -32,11 +32,14 @@ class ResonatorSpectroscopyExperiment(mmPulseExperiment):
         super().__init__(InstrumentDict, path=path, prefix=prefix, config_file=config_file, progress=progress,**kwargs)
 
     #override since we don't need tek or mixer
-    def on(self,quiet=False):
+    def on(self,quiet=False,stabilize_time=None):
         if not quiet: print('Turning PNAX ON')
-        #self.amcMixer.on(stabilize=stabilize_time)
         self.PNAX.set_output(True)
         self.PNAX.set_sweep_mode('CONT')
+        #if mixer on
+        if 'mixer_on' in self.cfg.expt:
+            if stabilize_time is None: stabilize_time=self.cfg.hardware.stabilize_time
+            self.amcMixer.on(stabilize=stabilize_time)
         #self.tek.run()
 
     def off(self,quiet=False):
@@ -44,37 +47,46 @@ class ResonatorSpectroscopyExperiment(mmPulseExperiment):
         #self.tek.stop()
         self.PNAX.set_sweep_mode('HOLD')
         self.PNAX.set_output(False)
-        #self.amcMixer.off()
+        self.amcMixer.off()
 
     #override
     def acquire(self, progress=False,start_on=False,leave_on=False):
         xpts=self.cfg.expt["start"] + self.cfg.expt["step"]*np.arange(self.cfg.expt["expts"])
+        if 'reps' not in self.cfg.expt: self.cfg.expt.reps = 1
+
         self.prep()                           
         if not start_on:
             self.on(quiet = not progress)
 
-        data={"xpts":[], "avgi":[], "avgq":[], "amps":[], "phases":[]}
+        data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
+        for i in range(self.cfg.expt["reps"]):
+            data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
 
-        for f in tqdm(xpts, disable=not progress):
-            self.cfg.device.readout.freq = f
-            self.PNAX.set_center_frequency(f*1e9)
+            for f in tqdm(xpts, disable=not progress):
+                #update frequency
+                self.cfg.device.readout.freq = f
+                self.PNAX.set_center_frequency(f*1e9)
 
-            self.PNAX.set_sweep_mode('SING')
-            response = self.PNAX.read_data()
-            avgi = np.mean(response[1])
-            avgq = np.mean(response[2])
-            amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
-            phase = np.angle(avgi+1j*avgq) # Calculating the phase
+                self.PNAX.set_sweep_mode('SING')
+                response = self.PNAX.read_data()
+                avgi = np.mean(response[1])
+                avgq = np.mean(response[2])
+                amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
+                phase = np.angle(avgi+1j*avgq) # Calculating the phase
 
-            data["xpts"].append(f)
-            data["avgi"].append(avgi)
-            data["avgq"].append(avgq)
-            data["amps"].append(amp)
-            data["phases"].append(phase)
-        
-        for k, a in data.items():
-            data[k]=np.array(a)
-        
+                #data["xpts"].append(a)
+                data_shot["avgi"].append(avgi)
+                data_shot["avgq"].append(avgq)
+                data_shot["amps"].append(amp)
+                data_shot["phases"].append(phase)
+            
+            for k, a in data_shot.items():
+                data[k].append(a)
+            
+        #final averaging
+        for k in ['avgi','avgq','amps','phases']:
+            data[k] = np.mean(data[k],axis=0)
+
         self.data=data
         #turn off if finished
         if not leave_on:

@@ -23,6 +23,7 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
         expts: number of experiments,
         nPtavg: point averages (fastest),
         nAvgs: points in sweep averages (fast),
+        reps: start-finish experiment repeats (very slow),
         pulse_type: 'gauss' or 'square',
         sigma: gaussian sigma for pulse length [ns] (default: from pi_ge in config)
         )
@@ -34,10 +35,14 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
 
     #override
     def acquire(self, progress=False,plot_pulse=False,start_on=False,leave_on=False):
+        if 'stop' in self.cfg.expt:
+            self.cfg.expt["expts"] = 1+int(np.ceil(abs(self.cfg.expt["stop"]-self.cfg.expt["start"])/self.cfg.expt["step"]))
         xpts=self.cfg.expt["start"] + self.cfg.expt["step"]*np.arange(self.cfg.expt["expts"])
         #trim xpts
         xpts = [x for x in xpts if x <=0.5]
 
+        if 'reps' not in self.cfg.expt: self.cfg.expt.reps = 1 
+        elif self.cfg.expt.reps == 0: self.cfg.expt.reps = 1
         if 'sigma' not in self.cfg.expt: self.cfg.expt.sigma = self.cfg.device.qubit.pulses.pi_ge.sigma
         #default values
         if 'delay' not in self.cfg.expt: self.cfg.expt.delay = 0.0
@@ -47,53 +52,61 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
         self.prep()
 
         #figure out first domain
-        divN = 1
+        divN0 = 1
         awg_gain = xpts[0]
         while awg_gain < 0.25:
-            divN = divN*2
-            awg_gain = xpts[0]*divN
-        print(f'First amplitude domain is 1/{divN}')
+            divN0 = divN0*2
+            awg_gain = xpts[0]*divN0
+        print(f'First amplitude domain is 1/{divN0}')
 
-        #load the first pulse
-        self.load_pulse(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-            amp=1/divN,phase=self.cfg.expt.phase)
-
-        if plot_pulse and not self.pulses_plotted: 
-            self.plot_pulses()
-            self.pulses_plotted=True
-
+        #turn on and stabilize
         if not start_on:
-            self.on(quiet = not progress)
-        else:
-            self.tek.run()
-        time.sleep(self.cfg.hardware.awg_load_time)
+            self.on(quiet = not progress,tek=True)
 
-        data={"xpts":[], "avgi":[], "avgq":[], "amps":[], "phases":[]}
+        data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
+        for i in range(self.cfg.expt["reps"]):
+            divN = divN0
+            #load the first pulse
+            self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                amp=1/divN,phase=self.cfg.expt.phase)
 
-        for a in tqdm(xpts, disable=not progress):
-            #update amplitude
-            awg_gain=np.round(a*divN,3) # min step is 1mV
-            if awg_gain>0.5:
-                divN=divN//2
-                awg_gain=np.round(a*divN,3)
-                self.load_pulse_and_run(type='gauss',delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                    amp=1/divN,phase=self.cfg.expt.phase)
+            if plot_pulse and not self.pulses_plotted: 
+                self.plot_pulses()
+                self.pulses_plotted=True
 
-            self.PNAX.set_sweep_mode('SING')
-            response = self.PNAX.read_data()
-            avgi = np.mean(response[1])
-            avgq = np.mean(response[2])
-            amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
-            phase = np.angle(avgi+1j*avgq) # Calculating the phase
+            data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
 
-            data["xpts"].append(a)
-            data["avgi"].append(avgi)
-            data["avgq"].append(avgq)
-            data["amps"].append(amp)
-            data["phases"].append(phase)
-        
-        for k, a in data.items():
-            data[k]=np.array(a)
+            for a in tqdm(xpts, disable=not progress,desc='%d/%d'%(i,self.cfg.expt['reps'])):
+                #update amplitude
+                awg_gain=np.round(a*divN,3) # min step is 1mV
+                if awg_gain>0.5:
+                    divN=divN//2
+                    awg_gain=np.round(a*divN,3)
+                    self.load_pulse_and_run(type='gauss',delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                        amp=1/divN,phase=self.cfg.expt.phase)
+
+                self.PNAX.set_sweep_mode('SING')
+                response = self.PNAX.read_data()
+                avgi = np.mean(response[1])
+                avgq = np.mean(response[2])
+                amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
+                phase = np.angle(avgi+1j*avgq) # Calculating the phase
+
+                #data["xpts"].append(a)
+                data_shot["avgi"].append(avgi)
+                data_shot["avgq"].append(avgq)
+                data_shot["amps"].append(amp)
+                data_shot["phases"].append(phase)
+            
+            for k, a in data_shot.items():
+                data[k].append(a)
+            
+        #final averaging
+        for k in ['avgi','avgq','amps','phases']:
+            data[k] = np.mean(data[k],axis=0)
+
+        #for k, a in data.items():
+        #    data[k]=np.array(a)
         
         self.data=data
         #turn off if finished
@@ -176,6 +189,7 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
         #trim xpts
         xpts = [x for x in xpts if x <=0.5]
 
+        if 'reps' not in self.cfg.expt: self.cfg.expt.reps = 1
         if 'sigma' not in self.cfg.expt: self.cfg.expt.sigma = self.cfg.device.qubit.pulses.pi_ge.sigma
         #default values
         if 'delay' not in self.cfg.expt: self.cfg.expt.delay = 0.0
@@ -225,43 +239,54 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
 
     def acquire_pt(self,xpts,plot_pulse=False,progress=True):
         #figure out first domain
-        divN = 1
+        divN0 = 1
         awg_gain = xpts[0]
         while awg_gain < 0.25:
-            divN = divN*2
-            awg_gain = xpts[0]*divN
-        print(f'First amplitude domain is 1/{divN}')
+            divN0 = divN0*2
+            awg_gain = xpts[0]*divN0
+        print(f'First amplitude domain is 1/{divN0}')
 
-        #load the first pulse
-        self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-            amp=1/divN,phase=self.cfg.expt.phase)
+        data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
+        for i in range(self.cfg.expt["reps"]):
+            divN = divN0
+            #load the first pulse
+            self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                amp=1/divN,phase=self.cfg.expt.phase)
 
-        if plot_pulse and not self.pulses_plotted: 
-            self.plot_pulses()
-            self.pulses_plotted=True
+            if plot_pulse and not self.pulses_plotted: 
+                self.plot_pulses()
+                self.pulses_plotted=True
 
-        data={"avgi":[], "avgq":[], "amps":[], "phases":[]}
+            data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
 
-        for a in tqdm(xpts, disable=not progress,leave=False):
-            #update amplitude
-            awg_gain=np.round(a*divN,3) # min step is 1mV
-            if awg_gain>0.5:
-                divN=divN//2
-                awg_gain=np.round(a*divN,3)
-                self.load_pulse_and_run(type='gauss',delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                    amp=1/divN,phase=self.cfg.expt.phase)
+            for a in tqdm(xpts, disable=not progress,desc='%d/%d'%(i,self.cfg.expt['reps'])):
+                #update amplitude
+                awg_gain=np.round(a*divN,3) # min step is 1mV
+                if awg_gain>0.5:
+                    divN=divN//2
+                    awg_gain=np.round(a*divN,3)
+                    self.load_pulse_and_run(type='gauss',delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                        amp=1/divN,phase=self.cfg.expt.phase)
 
-            self.PNAX.set_sweep_mode('SING')
-            response = self.PNAX.read_data()
-            avgi = np.mean(response[1])
-            avgq = np.mean(response[2])
-            amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
-            phase = np.angle(avgi+1j*avgq) # Calculating the phase
+                self.PNAX.set_sweep_mode('SING')
+                response = self.PNAX.read_data()
+                avgi = np.mean(response[1])
+                avgq = np.mean(response[2])
+                amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
+                phase = np.angle(avgi+1j*avgq) # Calculating the phase
 
-            data["avgi"].append(avgi)
-            data["avgq"].append(avgq)
-            data["amps"].append(amp)
-            data["phases"].append(phase)
+                #data["xpts"].append(a)
+                data_shot["avgi"].append(avgi)
+                data_shot["avgq"].append(avgq)
+                data_shot["amps"].append(amp)
+                data_shot["phases"].append(phase)
+            
+            for k, a in data_shot.items():
+                data[k].append(a)
+            
+        #final averaging
+        for k in ['avgi','avgq','amps','phases']:
+            data[k] = np.mean(data[k],axis=0)
         
         return data
 

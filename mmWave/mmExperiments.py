@@ -54,12 +54,14 @@ class mmPulseExperiment(FridgeExperiment):
         if debug:
             print(self.PNAX.get_id())
 
-    def on(self,quiet=False,stabilize_time=20):
+    def on(self,quiet=False,stabilize_time=None,tek=False):
+        if stabilize_time is None: stabilize_time=self.cfg.hardware.stabilize_time
         if not quiet: print('Turning Instruments ON')
         self.PNAX.set_output(True)
         self.PNAX.set_sweep_mode('CONT')
         self.amcMixer.on(stabilize=stabilize_time)
-        self.tek.run()
+        if tek:
+            self.tek.run()
 
     def off(self,quiet=False):
         if not quiet: print('Turning Instruments OFF')
@@ -177,7 +179,7 @@ class mmPulseExperiment(FridgeExperiment):
         self.amcMixer.set_frequency(self.lo_freq_qubit*1e9)
 
 
-    def load_pulse(self,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,length=None,phase=0,pulse_name=None):
+    def load_pulse(self,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,length=None,phase=0,pulse_name=None,quiet=False):
         #override for more complicated pulses
         self.awg_dt = self.cfg.hardware.awg_info.tek70001a.dt
         self.sequencer = Sequencer(list(self.cfg.hardware.awg_channels.keys()),self.cfg.hardware.awg_channels,self.cfg.hardware.awg_info,{})
@@ -210,7 +212,7 @@ class mmPulseExperiment(FridgeExperiment):
 
         if pulse_name is None:
             pulse_name='Pulse_%s_%.1fx_%.2fGHz'%(type,amp,self.cfg.device.qubit.if_freq)
-        write_Tek70001_sequence([self.multiple_sequences[0]['Ch1']],os.path.join(self.path, self.seqFolder), pulse_name,awg=self.tek)
+        write_Tek70001_sequence([self.multiple_sequences[0]['Ch1']],os.path.join(self.path, self.seqFolder), pulse_name,awg=self.tek,quiet=quiet)
         self.tek.prep_experiment()
         #note need to do tek.run after this
 
