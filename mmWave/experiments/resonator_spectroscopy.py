@@ -53,21 +53,23 @@ class ResonatorSpectroscopyExperiment(mmPulseExperiment):
     def acquire(self, progress=False,start_on=False,leave_on=False):
         xpts=self.cfg.expt["start"] + self.cfg.expt["step"]*np.arange(self.cfg.expt["expts"])
         if 'reps' not in self.cfg.expt: self.cfg.expt.reps = 1
+        elif self.cfg.expt.reps == 0: self.cfg.expt.reps = 1
 
         self.prep()                           
         if not start_on:
             self.on(quiet = not progress)
 
         data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
-        for i in range(self.cfg.expt["reps"]):
+        for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress):
             data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
 
-            for f in tqdm(xpts, disable=not progress):
+            for f in tqdm(xpts, disable=not progress,leave=False):
                 #update frequency
                 self.cfg.device.readout.freq = f
                 self.PNAX.set_center_frequency(f*1e9)
 
                 self.PNAX.set_sweep_mode('SING')
+                #set format = polar?
                 response = self.PNAX.read_data()
                 avgi = np.mean(response[1])
                 avgq = np.mean(response[2])

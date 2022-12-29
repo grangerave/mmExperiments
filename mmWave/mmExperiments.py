@@ -179,7 +179,7 @@ class mmPulseExperiment(FridgeExperiment):
         self.amcMixer.set_frequency(self.lo_freq_qubit*1e9)
 
 
-    def load_pulse(self,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,length=None,phase=0,pulse_name=None,quiet=False):
+    def load_pulse(self,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,ramp=0.1,phase=0,pulse_name=None,quiet=False):
         #override for more complicated pulses
         self.awg_dt = self.cfg.hardware.awg_info.tek70001a.dt
         self.sequencer = Sequencer(list(self.cfg.hardware.awg_channels.keys()),self.cfg.hardware.awg_channels,self.cfg.hardware.awg_info,{})
@@ -193,7 +193,7 @@ class mmPulseExperiment(FridgeExperiment):
             #define the pulses
             if type == 'square':
                 #Square(max_amp, flat_len, ramp_sigma_len, cutoff_sigma, freq, phase, phase_t0 = 0, dt=None)
-                pulse = Square(amp,length,sigma,1,self.cfg.device.qubit.if_freq,phase,dt=self.awg_dt)
+                pulse = Square(amp,sigma,ramp,1,self.cfg.device.qubit.if_freq,phase,dt=self.awg_dt)
             elif type == 'gauss':
                 pulse = Gauss(amp,sigma,sigma_cutoff,self.cfg.device.qubit.if_freq,phase)
             else:
