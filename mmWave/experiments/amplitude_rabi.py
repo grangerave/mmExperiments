@@ -85,6 +85,8 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
                     awg_gain=np.round(a*divN,3)
                     self.load_pulse_and_run(type='gauss',delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
                         amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
+                
+                self.tek.set_amplitude(1,awg_gain)
 
                 self.PNAX.set_sweep_mode('SING')
                 #set format = polar?
@@ -251,8 +253,10 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
             awg_gain = xpts[0]*divN0
         print(f'First amplitude domain is 1/{divN0}')
 
+        self.tek.set_amplitude(1,awg_gain)
+
         data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
-        for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress):
+        for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress,leave=False):
             divN = divN0
             #load the first pulse
             self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
@@ -272,6 +276,8 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
                     awg_gain=np.round(a*divN,3)
                     self.load_pulse_and_run(type='gauss',delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
                         amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
+                
+                self.tek.set_amplitude(1,awg_gain)
 
                 self.PNAX.set_sweep_mode('SING')
                 #set format = polar?
@@ -320,13 +326,17 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
             
         return data
 
-    def display(self, data=None, fit=True, **kwargs):
+    def display(self, data=None, fit=True, ampPhase = False, **kwargs):
         if data is None:
             data=self.data 
         x_sweep = data['xpts']
         y_sweep = data['fpts']
-        avgi = data['avgi']
-        avgq = data['avgq']
+        if ampPhase:
+            avgi = data['amps']
+            avgq = data['phases']
+        else:
+            avgi = data['avgi']
+            avgq = data['avgq']
 
         plt.figure(figsize=(10,8))
         plt.subplot(211, title="Amplitude Rabi", ylabel="Frequency [GHz]")
@@ -334,8 +344,12 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
             np.flip(avgi, 0),
             cmap='viridis',
             extent=[x_sweep[0], x_sweep[-1], y_sweep[0], y_sweep[-1]],
-            aspect='auto')
-        plt.colorbar(label='I (Receiver B)')
+            aspect='auto',
+            interpolation='none')
+        if ampPhase:
+            plt.colorbar(label='Amplitude (Receiver B)')
+        else:
+            plt.colorbar(label='I (Receiver B)')
         plt.clim(vmin=None, vmax=None)
         # plt.axvline(1684.92, color='k')
         # plt.axvline(1684.85, color='r')
@@ -345,8 +359,12 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
             np.flip(avgq, 0),
             cmap='viridis',
             extent=[x_sweep[0], x_sweep[-1], y_sweep[0], y_sweep[-1]],
-            aspect='auto')
-        plt.colorbar(label='Q (Receiver B)')
+            aspect='auto',
+            interpolation='none')
+        if ampPhase:
+            plt.colorbar(label='Phase (Receiver B)')
+        else:
+            plt.colorbar(label='Q (Receiver B)')
         plt.clim(vmin=None, vmax=None)
         
         if fit: pass

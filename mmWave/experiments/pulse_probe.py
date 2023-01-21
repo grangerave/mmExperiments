@@ -65,6 +65,8 @@ class PulseProbeExperiment(mmPulseExperiment):
             divN = divN*2
             awg_gain = xpts[0]*divN
         print(f'Amplitude domain is 1/{divN}')
+        
+        self.tek.set_amplitude(1,awg_gain)
         #load the first pulse
         self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
             amp=1/divN,phase=self.cfg.expt.phase)
@@ -73,8 +75,14 @@ class PulseProbeExperiment(mmPulseExperiment):
             self.plot_pulses()
             self.pulses_plotted=True
 
-        data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
-        for i in range(self.cfg.expt["reps"]):
+        data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[],"lo_qubit":[]}
+        if self.cfg.device.qubit.upper_sideband:
+            #already numpy array
+            data["lo_qubit"]=data["xpts"] - self.cfg.device.qubit.if_freq
+        else:
+            data["lo_qubit"]=data["xpts"] + self.cfg.device.qubit.if_freq
+
+        for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress):
             data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
 
             for f in tqdm(xpts, disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
@@ -162,7 +170,7 @@ class PulseProbeExperiment(mmPulseExperiment):
         if findpeaks:
             for peak in data['maxpeaks']:
                 plt.axvline(peak, linestyle='--', color='0.2')
-                print(f'Max Peak [GHz]: {peak}')
+                #print(f'Max Peak [GHz]: {peak}')
         plt.tight_layout()
         plt.show()
         
