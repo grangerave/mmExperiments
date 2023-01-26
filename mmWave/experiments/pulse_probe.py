@@ -63,9 +63,12 @@ class PulseProbeExperiment(mmPulseExperiment):
         awg_gain = self.cfg.expt.gain
         while awg_gain < 0.25:
             divN = divN*2
-            awg_gain = xpts[0]*divN
-        print(f'Amplitude domain is 1/{divN}')
-        
+            awg_gain = awg_gain*2
+        print(f'Gain: {self.cfg.expt.gain} Amplitude domain: 1/{divN} AWG amp: {awg_gain} Output: {awg_gain/divN}')
+        #store in config
+        self.cfg.expt.divN = divN
+        self.cfg.expt.awg_gain = awg_gain
+
         self.tek.set_amplitude(1,awg_gain)
         #load the first pulse
         self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
@@ -124,20 +127,6 @@ class PulseProbeExperiment(mmPulseExperiment):
             self.off(quiet = not progress)
 
         return data
-
-    def plot_pulses(self):
-        plt.figure(figsize=(18,4))
-        plt.subplot(111, title=f"Pulse Timing", xlabel="t (ns)")
-        plt.plot(np.arange(0,len(self.multiple_sequences[0]['Ch1']))*self.awg_dt,self.multiple_sequences[0]['Ch1'])
-        readout_ptx=[0.,self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+2*self.cfg.device.readout.width]
-        readout_pty=[0,0,.5,.5,0,0]
-        plt.plot(readout_ptx,readout_pty)
-        plt.xlabel('t (ns)')    
-        plt.show()
 
     def analyze(self, data=None, fit=False, findpeaks=False,verbose=True, **kwargs):
         if data is None:

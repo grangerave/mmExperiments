@@ -138,7 +138,6 @@ class Sequencer:
         self.multiple_sequences.append(sequence)
 
     def complete(self,plot=False):
-
         self.equalize_sequences()
         self.delay_channels(self.channels_delay)
 

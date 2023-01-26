@@ -8,6 +8,7 @@ A library for shared code used in millimeter wave experiments
 """
 import time, os
 import numpy as np
+import matplotlib.pyplot as plt
 from instruments.PNAX import N5242A
 from experiments.fridgeExperiment import FridgeExperiment, waitForCycle
 
@@ -35,6 +36,10 @@ def setVNApulsed(VNA):
 #function to unset pulses on VNA and re-enable CW
 def setVNAcw(VNA):
     pass
+
+def floor10(x):
+    #return an int rounded down to the nearest 10. needs x>0
+    return int(round(x-5,-1))
 
 # --------------- Parent Experiment Class ---------------
 # support for turning instruments on/off when waiting for cycle
@@ -115,7 +120,7 @@ class mmPulseExperiment(FridgeExperiment):
         
         #Pulse timing
         #awg delay in ns
-        self.awg_trig_delay=self.cfg['hardware']['period']-self.cfg['hardware']['awg_trigger_time']-self.cfg['hardware']['awg_offset']
+        #self.awg_trig_delay=(self.cfg['hardware']['period']-floor10(self.cfg['hardware']['awg_trigger_time'])%self.cfg['hardware']['period']-floor10(self.cfg['hardware']['awg_offset']))
 
         self.PNAX.write("SENS:PULS:PERiod %.12f" % (self.cfg['hardware']['period']*1e-9))
         self.PNAX.write("SENS:PULS0:DEL %.12f" % (self.cfg['hardware']['ADC_delay']*1e-9) )
@@ -127,7 +132,8 @@ class mmPulseExperiment(FridgeExperiment):
         self.PNAX.write("SENS:PULS2:DEL %.12f" % (self.cfg['device']['readout']['delay']*1e-9))
         #(3) tek trigger
         self.PNAX.write("SENS:PULS3:WIDT %.12f" % (self.cfg['hardware']['awg_trigger']['width']*1e-9))
-        self.PNAX.write("SENS:PULS3:DEL %.12f" % (self.awg_trig_delay*1e-9))
+        #self.PNAX.write("SENS:PULS3:DEL %.12f" % (self.awg_trig_delay*1e-9))
+        self.update_awg_offset(self.cfg['hardware']['awg_offset'])
         #(4) unused
         self.PNAX.write("SENS:PULS4:WIDT %.12f" % (self.cfg['hardware']['pulse4']['width']*1e-9))
         self.PNAX.write("SENS:PULS4:DEL %.12f" % (self.cfg['hardware']['pulse4']['delay']*1e-9))
@@ -135,8 +141,19 @@ class mmPulseExperiment(FridgeExperiment):
     def update_awg_offset(self,awg_offset):
         #awg_offset in ns
         self.cfg.hardware.awg_offset = awg_offset
-        self.awg_trig_delay=self.cfg['hardware']['period']-self.cfg['hardware']['awg_trigger_time']-awg_offset
+        self.awg_trig_delay=(self.cfg['hardware']['period']-floor10(self.cfg['hardware']['awg_trigger_time'])%self.cfg['hardware']['period']-floor10(self.cfg['hardware']['awg_offset']))
         self.PNAX.write("SENS:PULS3:DEL %.12f" % (self.awg_trig_delay*1e-9))
+
+    def updateGain(self,gain,quiet=False):
+        divN = 1
+        awg_gain = gain
+        while awg_gain < 0.25:
+            divN = divN*2
+            awg_gain = awg_gain*2
+        print(f'Gain: {gain} Amplitude domain: 1/{divN} AWG amp: {awg_gain} Output: {awg_gain/divN}')
+        #store in expt
+        self.cfg.expt.divN = divN
+        self.cfg.expt.awg_gain = awg_gain
 
     def setup_freq_and_power(self):
         """
@@ -201,17 +218,17 @@ class mmPulseExperiment(FridgeExperiment):
             if pulse is not None: self.pulse_length = pulse.get_length() # in ns?
 
             #pulse is too long! may need to auto-adjust the trig delay (needs to be a multiple of 10)
-            if self.cfg.hardware.awg_offset < self.pulse_length+delay:
+            if floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10) < self.pulse_length+delay:
                 print('Warning: pulse is longer than awg_offset!')
 
-            self.sequencer.new_sequence(self.cfg.hardware.awg_offset-pulse.get_length()-delay)
+            self.sequencer.new_sequence(floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10) -pulse.get_length()-delay)
             self.sequencer.append('Ch1', pulse)
 
-        self.sequencer.end_sequence()
+        self.sequencer.end_sequence(0.1)#pads pulse with 0.1ns of 0s
         self.multiple_sequences=self.sequencer.complete()
 
         if pulse_name is None:
-            pulse_name='Pulse_%s_%.1fx_%.2fGHz'%(type,amp,self.cfg.device.qubit.if_freq)
+            pulse_name='Pulse_%s_s%1.1fns_%.1fx_d%dns_%.2fGHz'%(type,sigma,amp,delay,self.cfg.device.qubit.if_freq)
         write_Tek70001_sequence([self.multiple_sequences[0]['Ch1']],os.path.join(self.path, self.seqFolder), pulse_name,awg=self.tek,quiet=quiet)
         self.tek.prep_experiment()
         #note need to do tek.run after this
@@ -221,3 +238,17 @@ class mmPulseExperiment(FridgeExperiment):
         self.tek.set_enabled(1,'on')
         self.tek.run()
         time.sleep(self.cfg.hardware.awg_load_time)
+
+    def plot_pulses(self,stagger=0.25):
+        plt.figure(figsize=(18,4))
+        plt.subplot(111, title=f"Pulse Timing", xlabel="t (ns)")
+        plt.plot(np.arange(0,len(self.multiple_sequences[0]['Ch1']))*self.awg_dt,self.multiple_sequences[0]['Ch1'])
+        readout_ptx=[0.,self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
+            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
+            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
+            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
+            self.cfg.hardware.awg_info.tek70001a.dt * self.cfg.hardware.awg_info.tek70001a.min_samples]
+        readout_pty=[x + stagger for x in [0,0,.5,.5,0,0]]
+        plt.plot(readout_ptx,readout_pty)
+        plt.xlabel('t (ns)')    
+        plt.show()

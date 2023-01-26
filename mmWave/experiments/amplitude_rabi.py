@@ -36,7 +36,10 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
     #override
     def acquire(self, progress=False,plot_pulse=False,start_on=False,leave_on=False):
         if 'stop' in self.cfg.expt:
-            self.cfg.expt["expts"] = 1+int(np.ceil(abs(self.cfg.expt["stop"]-self.cfg.expt["start"])/self.cfg.expt["step"]))
+            if 'step' in self.cfg.expt:
+                self.cfg.expt["expts"] = 1+int(np.ceil(abs(self.cfg.expt["stop"]-self.cfg.expt["start"])/self.cfg.expt["step"]))
+            else:
+                self.cfg.expt["step"] = abs(self.cfg.expt["stop"]-self.cfg.expt["start"])/self.cfg.expt["expts"]
         xpts=self.cfg.expt["start"] + self.cfg.expt["step"]*np.arange(self.cfg.expt["expts"])
         #trim xpts
         xpts = [x for x in xpts if x <=0.5]
@@ -57,8 +60,11 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
         awg_gain = xpts[0]
         while awg_gain < 0.25:
             divN0 = divN0*2
-            awg_gain = xpts[0]*divN0
-        print(f'First amplitude domain is 1/{divN0}')
+            awg_gain = xpts[0]*divN0 #awg_gain*2
+        print(f'first Gain: {xpts[0]} Amplitude domain: 1/{divN0} AWG amp: {awg_gain} Output: {awg_gain/divN0}')
+        #store in config
+        self.cfg.expt.divN0 = divN0
+        self.cfg.expt.awg_gain = awg_gain
 
         #turn on and stabilize
         if not start_on:
@@ -66,8 +72,9 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
 
         data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
         for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress):
-            divN = divN0
+            divN = self.cfg.expt.divN0
             #load the first pulse
+            self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
             self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
                 amp=1/divN,phase=self.cfg.expt.phase)
 
@@ -83,10 +90,14 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
                 if awg_gain>0.5:
                     divN=divN//2
                     awg_gain=np.round(a*divN,3)
-                    self.load_pulse_and_run(type='gauss',delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                    self.tek.stop()
+                    self.tek.set_amplitude(1,awg_gain)
+                    self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
                         amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
-                
-                self.tek.set_amplitude(1,awg_gain)
+                else:
+                    self.tek.set_amplitude(1,awg_gain)
+                #wait for tek amplitude to set
+                time.sleep(self.cfg.hardware.awg_update_time)
 
                 self.PNAX.set_sweep_mode('SING')
                 #set format = polar?
@@ -118,20 +129,6 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
             self.off(quiet = not progress)
 
         return data
-
-    def plot_pulses(self):
-        plt.figure(figsize=(18,4))
-        plt.subplot(111, title=f"Pulse Timing", xlabel="t (ns)")
-        plt.plot(np.arange(0,len(self.multiple_sequences[0]['Ch1']))*self.awg_dt,self.multiple_sequences[0]['Ch1'])
-        readout_ptx=[0.,self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+2*self.cfg.device.readout.width]
-        readout_pty=[0,0,.5,.5,0,0]
-        plt.plot(readout_ptx,readout_pty)
-        plt.xlabel('t (ns)')    
-        plt.show()
 
     def analyze(self, data=None, fit=False,verbose=True, **kwargs):
         if data is None:
@@ -189,6 +186,11 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
     #override
     def acquire(self, progress=False,sub_progress=False,plot_pulse=False,start_on=False,leave_on=False):
         fpts= self.cfg.expt["start_f"]+ self.cfg.expt["step_f"]*np.arange(self.cfg.expt["expts_f"])
+        if 'stop_gain' in self.cfg.expt:
+            if 'step_gain' in self.cfg.expt:
+                self.cfg.expt["expts_gain"] = 1+int(np.ceil(abs(self.cfg.expt["stop_gain"]-self.cfg.expt["start_gain"])/self.cfg.expt["step_gain"]))
+            else:
+                self.cfg.expt["step_gain"] = abs(self.cfg.expt["stop_gain"]-self.cfg.expt["start_gain"])/self.cfg.expt["expts_gain"]
         xpts=self.cfg.expt["start_gain"] + self.cfg.expt["step_gain"]*np.arange(self.cfg.expt["expts_gain"])
         #trim xpts
         xpts = [x for x in xpts if x <=0.5]
@@ -251,14 +253,16 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
         while awg_gain < 0.25:
             divN0 = divN0*2
             awg_gain = xpts[0]*divN0
-        print(f'First amplitude domain is 1/{divN0}')
-
-        self.tek.set_amplitude(1,awg_gain)
+        print(f'first Gain: {xpts[0]} Amplitude domain: 1/{divN0} AWG amp: {awg_gain} Output: {awg_gain/divN0}')
+        #store in config
+        self.cfg.expt.divN0 = divN0
+        self.cfg.expt.awg_gain = awg_gain
 
         data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
         for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress,leave=False):
             divN = divN0
             #load the first pulse
+            self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
             self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
                 amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
 
@@ -274,10 +278,14 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
                 if awg_gain>0.5:
                     divN=divN//2
                     awg_gain=np.round(a*divN,3)
-                    self.load_pulse_and_run(type='gauss',delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                    self.tek.stop()
+                    self.tek.set_amplitude(1,awg_gain)
+                    self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
                         amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
-                
-                self.tek.set_amplitude(1,awg_gain)
+                else:
+                    self.tek.set_amplitude(1,awg_gain)
+                #wait for tek amplitude to set
+                time.sleep(self.cfg.hardware.awg_update_time)
 
                 self.PNAX.set_sweep_mode('SING')
                 #set format = polar?
@@ -301,20 +309,6 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
             data[k] = np.mean(data[k],axis=0)
         
         return data
-
-    def plot_pulses(self):
-        plt.figure(figsize=(18,4))
-        plt.subplot(111, title=f"Pulse Timing", xlabel="t (ns)")
-        plt.plot(np.arange(0,len(self.multiple_sequences[0]['Ch1']))*self.awg_dt,self.multiple_sequences[0]['Ch1'])
-        readout_ptx=[0.,self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+2*self.cfg.device.readout.width]
-        readout_pty=[0,0,.5,.5,0,0]
-        plt.plot(readout_ptx,readout_pty)
-        plt.xlabel('t (ns)')    
-        plt.show()
 
     def analyze(self, data=None, fit=False,verbose=True, **kwargs):
         if data is None:
