@@ -228,7 +228,7 @@ class mmPulseExperiment(FridgeExperiment):
         self.multiple_sequences=self.sequencer.complete()
 
         if pulse_name is None:
-            pulse_name='Pulse_%s_s%1.1fns_%.1fx_d%dns_%.2fGHz'%(type,sigma,amp,delay,self.cfg.device.qubit.if_freq)
+            pulse_name='Pulse_%s_s%1.1fns_%0.2fx_d%dns_%.2fGHz'%(type,sigma,amp,delay,self.cfg.device.qubit.if_freq)
         write_Tek70001_sequence([self.multiple_sequences[0]['Ch1']],os.path.join(self.path, self.seqFolder), pulse_name,awg=self.tek,quiet=quiet)
         self.tek.prep_experiment()
         #note need to do tek.run after this

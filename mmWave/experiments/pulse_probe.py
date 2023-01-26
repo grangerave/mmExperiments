@@ -52,12 +52,6 @@ class PulseProbeExperiment(mmPulseExperiment):
         if 'phase' not in self.cfg.expt: self.cfg.expt.phase = 0.0
         if 'sigma_cutoff' not in self.cfg.expt: self.cfg.expt.sigma_cutoff=3
 
-        
-
-        #turn on and stabilize
-        if not start_on:
-            self.on(quiet = not progress,tek=False)
-
         #figure out pulse domain
         divN = 1
         awg_gain = self.cfg.expt.gain
@@ -68,6 +62,10 @@ class PulseProbeExperiment(mmPulseExperiment):
         #store in config
         self.cfg.expt.divN = divN
         self.cfg.expt.awg_gain = awg_gain
+
+        #turn on and stabilize
+        if not start_on:
+            self.on(quiet = not progress,tek=False)
 
         self.tek.set_amplitude(1,awg_gain)
         #load the first pulse
