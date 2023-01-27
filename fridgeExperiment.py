@@ -148,7 +148,7 @@ class FridgeExperiment(Experiment):
 
     def waitForCycle(self,powerOffonWait=True,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120,quiet=False):
         # check that temperature didn't start warming up. normally returns True (for use in while loops)
-
+        #print(locals())
         if getCurlTemp()<maxTargetTemp:
             return True #temperature is correct
             
@@ -176,14 +176,21 @@ class FridgeExperiment(Experiment):
         #flag the parent loop that we had to wait for a cycle (should discard the last datapoint)
         return False
 
-    def acquireDuringCycle(self,powerOffonWait=True,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120,quiet=False,**kwargs):
+    def acquireDuringCycle(self,powerOffonWait=None,maxTargetTemp=None,maxDesorbTemp=None,nTimeSteps=None,desorbTime=None,tempCheckDelay=None,finalDelay=None,quiet=None,**kwargs):
+        #use passed arguments to override fridgeConfig
+        argsPassed = locals()
+        del argsPassed['kwargs']
+        del argsPassed['self']
+        overrides=self.fridge_config
+        for k,v in argsPassed.items():
+            if v is not None: overrides[k] = v
         #call our own acquire function with the given arguments
         while True:
             #avoid collecting data if already warm
-            self.waitForCycle(powerOffonWait=powerOffonWait,maxTargetTemp=maxTargetTemp,maxDesorbTemp=maxDesorbTemp,nTimeSteps=nTimeSteps,desorbTime=desorbTime,tempCheckDelay=tempCheckDelay,finalDelay=finalDelay,quiet=quiet)
+            self.waitForCycle(**overrides)
             #collect data
             result = self.acquire(**kwargs)
-            if self.waitForCycle(powerOffonWait=powerOffonWait,maxTargetTemp=maxTargetTemp,maxDesorbTemp=maxDesorbTemp,nTimeSteps=nTimeSteps,desorbTime=desorbTime,tempCheckDelay=tempCheckDelay,finalDelay=finalDelay,quiet=quiet):
+            if self.waitForCycle(**overrides):
                 break   #the temperature is good. Proceed
         return result
 

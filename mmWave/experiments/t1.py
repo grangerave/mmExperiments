@@ -153,12 +153,12 @@ class T1AmplitudeExperiment(mmPulseExperiment):
     T1-Amplitude Experiment where amplitude is set by awg when possible
     Requires Experimental Config
     expt = dict(
-        start_gain: start gain (mVpp), 
-        step_gain: stop gain (mVpp),
-        start_f: start freq (GHz),
-        step_f: step freq (GHz),
-        expts_gain: number of gain points,
-        expts_f: frequency points,
+        start_time: start time [ns] (can be negative), 
+        step_time: stop time [ns],
+        start_gain: start gain [mVpp],
+        step_gain: step gain [mVpp],
+        expts_time: number of time points,
+        expts_gain: gain points,
         nPtavg: point averages (fastest),
         nAvgs: points in sweep averages (fast),
         pulse_type: 'gauss' or 'square',
@@ -173,15 +173,20 @@ class T1AmplitudeExperiment(mmPulseExperiment):
 
     #override
     def acquire(self, progress=False,sub_progress=False,plot_pulse=False,start_on=False,leave_on=False):
-        fpts= self.cfg.expt["start_f"]+ self.cfg.expt["step_f"]*np.arange(self.cfg.expt["expts_f"])
+        if 'stop_time' in self.cfg.expt:
+            if 'step_time' in self.cfg.expt:
+                self.cfg.expt["expts_time"] = 1+int(np.ceil(abs(self.cfg.expt["stop_time"]-self.cfg.expt["start_time"])/self.cfg.expt["step_time"]))
+            else:
+                self.cfg.expt["step_time"] = abs(self.cfg.expt["stop_time"]-self.cfg.expt["start_time"])/self.cfg.expt["expts_time"]
+        xpts=self.cfg.expt["start_time"] + self.cfg.expt["step_time"]*np.arange(self.cfg.expt["expts_time"])
         if 'stop_gain' in self.cfg.expt:
             if 'step_gain' in self.cfg.expt:
                 self.cfg.expt["expts_gain"] = 1+int(np.ceil(abs(self.cfg.expt["stop_gain"]-self.cfg.expt["start_gain"])/self.cfg.expt["step_gain"]))
             else:
                 self.cfg.expt["step_gain"] = abs(self.cfg.expt["stop_gain"]-self.cfg.expt["start_gain"])/self.cfg.expt["expts_gain"]
-        xpts=self.cfg.expt["start_gain"] + self.cfg.expt["step_gain"]*np.arange(self.cfg.expt["expts_gain"])
-        #trim xpts
-        xpts = [x for x in xpts if x <=0.5]
+        gpts=self.cfg.expt["start_gain"] + self.cfg.expt["step_gain"]*np.arange(self.cfg.expt["expts_gain"])
+        #trim gain pts
+        gpts = [x for x in gpts if x <=0.5]
 
         if 'reps' not in self.cfg.expt: self.cfg.expt.reps = 1
         elif self.cfg.expt.reps == 0: self.cfg.expt.reps = 1
@@ -193,19 +198,42 @@ class T1AmplitudeExperiment(mmPulseExperiment):
         if 'phase' not in self.cfg.expt: self.cfg.expt.phase = 0.0
         if 'sigma_cutoff' not in self.cfg.expt: self.cfg.expt.sigma_cutoff=3
 
+        #figure out first domain
+        divN = 1
+        awg_gain = gpts[0]
+        while awg_gain < 0.25:
+            divN = divN*2
+            awg_gain = gpts[0]*divN #awg_gain*2
+        print(f'first Gain: {gpts[0]} Amplitude domain: 1/{divN} AWG amp: {awg_gain} Output: {awg_gain/divN}')
+        #store in config
+        self.cfg.expt.divN = divN
+        self.cfg.expt.awg_gain = awg_gain
+
+        #turn on and stabilize
         if not start_on:
-            self.on()
+            self.on(quiet = not progress,tek=True)
 
-        data={"xpts":[],"fpts":[],"avgi":[], "avgq":[], "amps":[], "phases":[]}
+        #load the first pulse
+        self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
+        self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=xpts[0],sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+            amp=1/divN,phase=self.cfg.expt.phase)
 
-        for f in tqdm(fpts,disable=not progress):
-            if f>1e9: f=f/1e9   #correct for freq in Hz
-            #update freq
-            if self.cfg.device.qubit.upper_sideband:
-                self.lo_freq_qubit = f - self.cfg.device.qubit.if_freq
-            else:   #use lower sideband
-                self.lo_freq_qubit = f + self.cfg.device.qubit.if_freq
-            self.amcMixer.set_frequency(self.lo_freq_qubit*1e9)
+        if plot_pulse and not self.pulses_plotted: 
+            self.plot_pulses()
+            self.pulses_plotted=True
+
+        data={"xpts":[],"gpts":[],"avgi":[], "avgq":[], "amps":[], "phases":[]}
+
+        for a in tqdm(gpts, disable=not progress):
+            #update amplitude in cfg
+            self.cfg.expt.awg_gain=np.round(a*self.cfg.expt.divN,3) # min step is 1mV
+            if self.cfg.expt.awg_gain>0.5:
+                self.cfg.expt.divN=self.cfg.expt.divN//2
+                self.cfg.expt.awg_gain=np.round(a*self.cfg.expt.divN,3)
+                self.tek.stop()#prevent amplitude from increasing
+                self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
+            else:
+                self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
 
             while True:
                 #avoid collecting data if already warm
@@ -221,7 +249,7 @@ class T1AmplitudeExperiment(mmPulseExperiment):
 
         
         data["xpts"] = xpts #1D array
-        data["fpts"] = fpts #1D array
+        data["gpts"] = gpts #1D array
 
         for k, a in data.items():
             data[k]=np.array(a)
@@ -234,45 +262,21 @@ class T1AmplitudeExperiment(mmPulseExperiment):
         return data
 
     def acquire_pt(self,xpts,plot_pulse=False,progress=True):
-        #figure out first domain
-        divN0 = 1
-        awg_gain = xpts[0]
-        while awg_gain < 0.25:
-            divN0 = divN0*2
-            awg_gain = xpts[0]*divN0
-        print(f'first Gain: {xpts[0]} Amplitude domain: 1/{divN0} AWG amp: {awg_gain} Output: {awg_gain/divN0}')
-        #store in config
-        self.cfg.expt.divN0 = divN0
-        self.cfg.expt.awg_gain = awg_gain
-
         data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
-        for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress,leave=False):
-            divN = divN0
-            #load the first pulse
-            self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
-            self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
-
-            if plot_pulse and not self.pulses_plotted: 
-                self.plot_pulses()
-                self.pulses_plotted=True
-
+        for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress):
             data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
-
-            for a in tqdm(xpts, disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
-                #update amplitude
-                awg_gain=np.round(a*divN,3) # min step is 1mV
-                if awg_gain>0.5:
-                    divN=divN//2
-                    awg_gain=np.round(a*divN,3)
-                    self.tek.stop()
-                    self.tek.set_amplitude(1,awg_gain)
-                    self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                        amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
-                else:
-                    self.tek.set_amplitude(1,awg_gain)
+            for delay in tqdm(xpts, disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
+                #update delay
+                # amplitude is handled in parent loop
+                self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                    amp=1/self.cfg.expt.divN,phase=self.cfg.expt.phase,quiet=True)
                 #wait for tek amplitude to set
                 time.sleep(self.cfg.hardware.awg_update_time)
+                
+                #plot pulses if first time
+                if plot_pulse and not self.pulses_plotted: 
+                    self.plot_pulses()
+                    self.pulses_plotted=True
 
                 self.PNAX.set_sweep_mode('SING')
                 #set format = polar?
@@ -311,7 +315,7 @@ class T1AmplitudeExperiment(mmPulseExperiment):
         if data is None:
             data=self.data 
         x_sweep = data['xpts']
-        y_sweep = data['fpts']
+        y_sweep = data['gpts']
         if ampPhase:
             avgi = data['amps']
             avgq = data['phases']
@@ -320,7 +324,7 @@ class T1AmplitudeExperiment(mmPulseExperiment):
             avgq = data['avgq']
 
         plt.figure(figsize=(10,8))
-        plt.subplot(211, title="Amplitude Rabi", ylabel="Frequency [GHz]")
+        plt.subplot(211, title="Amplitude Rabi", ylabel="Pulse Amp [mVpp]")
         plt.imshow(
             np.flip(avgi, 0),
             cmap='viridis',
@@ -335,7 +339,7 @@ class T1AmplitudeExperiment(mmPulseExperiment):
         # plt.axvline(1684.92, color='k')
         # plt.axvline(1684.85, color='r')
 
-        plt.subplot(212, xlabel="Gain (mVpp)", ylabel="Frequency [GHz]")
+        plt.subplot(212, xlabel="time (ns)", ylabel="Pulse Amp [mVpp]")
         plt.imshow(
             np.flip(avgq, 0),
             cmap='viridis',
