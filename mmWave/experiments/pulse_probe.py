@@ -51,6 +51,7 @@ class PulseProbeExperiment(mmPulseExperiment):
         if 'delay' not in self.cfg.expt: self.cfg.expt.delay = 0.0
         if 'phase' not in self.cfg.expt: self.cfg.expt.phase = 0.0
         if 'sigma_cutoff' not in self.cfg.expt: self.cfg.expt.sigma_cutoff=3
+        #if 'pulse_count' not in self.cfg.expt: self.cfg.pulse_count=1
 
         #figure out pulse domain
         divN = 1
@@ -142,18 +143,26 @@ class PulseProbeExperiment(mmPulseExperiment):
             
         return data
 
-    def display(self, data=None, fit=False, findpeaks=True,**kwargs):
+    def display(self, data=None, fit=False, ampPhase = True,findpeaks=True,**kwargs):
         if data is None:
             data=self.data 
         plt.figure(figsize=(16,10))
-        plt.subplot(211, title="Pulse Probe", ylabel="I (Receiver B)")
-        plt.plot(data["xpts"], data["avgi"],'o-')
+        if ampPhase:
+            plt.subplot(211, title="Pulse Probe", ylabel="Amp (Receiver B)")
+            plt.plot(data["xpts"], data["amps"],'o-')
+        else:
+            plt.subplot(211, title="Pulse Probe", ylabel="I (Receiver B)")
+            plt.plot(data["xpts"], data["avgi"],'o-')
         if findpeaks:
             for peak in data['maxpeaks']:
                 plt.axvline(peak, linestyle='--', color='0.2')
                 print(f'Max Peak [GHz]: {peak}')
-        plt.subplot(212, xlabel="Pulse Frequency (GHz)", ylabel="Q (Receiver B)")
-        plt.plot(data["xpts"], data["avgq"],'o-')
+        if ampPhase:
+            plt.subplot(212, xlabel="Pulse Frequency (GHz)", ylabel="Phase (Receiver B)")
+            plt.plot(data["xpts"], data["phases"],'o-')
+        else:
+            plt.subplot(212, xlabel="Pulse Frequency (GHz)", ylabel="Q (Receiver B)")
+            plt.plot(data["xpts"], data["avgq"],'o-')
         if findpeaks:
             for peak in data['maxpeaks']:
                 plt.axvline(peak, linestyle='--', color='0.2')

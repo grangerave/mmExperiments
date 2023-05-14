@@ -85,7 +85,7 @@ def waitForTempAbove(minTargetTemp,nTimeSteps=30,tempCheckDelay=500,quiet=False)
         for i in range(nTimeSteps):time.sleep(tempCheckDelay/nTimeSteps) #wait check time
 
 
-def waitForCycle(maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120,quiet=False):
+def waitForCycle(offFunc=None,onFunc=None,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120,quiet=False):
     # check that temperature didn't start warming up
     # normally returns True (for use in while loops)
 
@@ -100,6 +100,7 @@ def waitForCycle(maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=18
         return True
         
     if not quiet:print('Temperature too high! Waiting for cycle ...')
+    if offFunc is not None:offFunc()
     
     #wait (total of 30 min) without checking temp to make sure cycle is in desorb phase
     for i in range(nTimeSteps):
@@ -107,26 +108,29 @@ def waitForCycle(maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=18
         time.sleep(desorbTime/nTimeSteps)
     
     #verify cycle is in desorb phase by checking temp
-    waitForTempBelow(maxDesorbTemp,nStep=nTimeSteps,tempCheckDelay=tempCheckDelay)
+    waitForTempBelow(maxDesorbTemp,nTimeSteps=nTimeSteps,tempCheckDelay=tempCheckDelay)
     if not quiet:print('Cycle Desorbing.')
     
     #calibrations go here
     #TODO run calibration
 
     #wait until cycle is finished by checking temp
-    waitForTempBelow(maxTargetTemp,nStep=nTimeSteps,tempCheckDelay=tempCheckDelay)
+    waitForTempBelow(maxTargetTemp,nTimeSteps=nTimeSteps,tempCheckDelay=tempCheckDelay)
 
     for i in range(nTimeSteps):time.sleep(finalDelay/nTimeSteps) #wait final delay
     print('Cycle finished. Resuming...')
+    if onFunc is not None:onFunc()
     #flag the parent loop that we had to wait for a cycle (should discard the last datapoint)
     return False
 
 
-def acquireDuringCycle(acquire,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120,quiet=False,**kwargs):
+def acquireDuringCycle(acquire,onFunc=None,offFunc=None,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120,quiet=False,**kwargs):
+    #avoid collecting data if already warm
+    waitForCycle(onFunc=onFunc,offFunc=offFunc,maxTargetTemp=maxTargetTemp,maxDesorbTemp=maxDesorbTemp,nTimeSteps=nTimeSteps,desorbTime=desorbTime/2,tempCheckDelay=tempCheckDelay,finalDelay=finalDelay,quiet=quiet)
     #call the acquire function with the given arguments
     while True:
         result = acquire(**kwargs)
-        if waitForCycle(maxTargetTemp=maxTargetTemp,maxDesorbTemp=maxDesorbTemp,nTimeSteps=nTimeSteps,desorbTime=desorbTime,tempCheckDelay=tempCheckDelay,finalDelay=finalDelay,quiet=quiet):
+        if waitForCycle(onFunc=onFunc,offFunc=offFunc,maxTargetTemp=maxTargetTemp,maxDesorbTemp=maxDesorbTemp,nTimeSteps=nTimeSteps,desorbTime=desorbTime,tempCheckDelay=tempCheckDelay,finalDelay=finalDelay,quiet=quiet):
             break   #the temperature is good
     return result
             

@@ -309,7 +309,7 @@ class LengthFreqRabiExperiment(mmPulseExperiment):
             avgq = data['avgq']
 
         plt.figure(figsize=(10,8))
-        plt.subplot(211, title="Amplitude Rabi", ylabel="Frequency [GHz]")
+        plt.subplot(211, title="Length Rabi", ylabel="Frequency [GHz]")
         plt.imshow(
             np.flip(avgi, 0),
             cmap='viridis',

@@ -38,16 +38,23 @@ class PNAX(N5242A):
 #meta instruments (as a class)
 
 class multiplier():
-    def __init__(self,sc,bk,channel=2,voltage=8.0,power=10.0,freq=75.0,max_power=10.0):
+    def __init__(self,sc,bk,channel=2,voltage=8.0,chAtt=1,rangeAtt=10.0,power=-18.0,freq=75.0,max_power=-10.0):
+        #variable attenuator setup
+        self.chAtt=chAtt
+        self.rangeAtt=rangeAtt
+        #multiplier setup
         self.channel=channel
         self.voltage=voltage
-        self.power=power
+        self.power=min(max_power,power)
         self.max_power=max_power
         #convert freq to ghz
         if freq>1e9:
             freq = freq/1e9
         self.freq=freq
         self.updateInstruments(sc,bk)
+        #setup normal powers and frequency
+        self.sc.set_power(self.power)
+        self.sc.set_frequency(self.freq*1e9/6.0)
     
     def updateInstruments(self,sc,bk):
         #cache references to instruments
@@ -58,6 +65,8 @@ class multiplier():
         #turn on power
         self.bk.set_voltage(self.channel,self.voltage)
         self.bk.set_output(True, channel=self.channel)
+        #turn on attenuator
+        self.bk.set_output(True, channel=self.chAtt)
         time.sleep(delay)
         print(self.bk.query('MEAS:ALL?'))
         if initialize:
@@ -80,9 +89,12 @@ class multiplier():
         print(self.bk.query('MEAS:ALL?'))
 
     def set_frequency(self, freq, acknowledge = True):
-        #frequency in Hz
-        if freq/6e9> 60 and freq/6e9<120:
-            self.sc.set_frequency(freq=freq/6.0,acknowledge=acknowledge)
+        #convert freq to ghz
+        if freq>1e9:
+            freq = freq/1e9
+        if freq> 60 and freq<130:
+            self.freq = freq
+            self.sc.set_frequency(freq=self.freq*1e9/6.0,acknowledge=acknowledge)
         else:
             print('Warning, could not set frequency out of range.')
 
@@ -90,6 +102,15 @@ class multiplier():
         #power in dBm
         if power <= self.max_power:
             self.sc.set_power(power)
+        else:
+            print('Error: could not set power (too high)!')
+    
+    def set_attenuation(self,voltage):
+        #attenuator voltage in volts
+        if voltage <= self.rangeAtt and voltage >= 0.0:
+            self.bk.set_voltage(self.chAtt,voltage)
+        else:
+            print('Error: could not set attenuator voltage (out of bounds)!')
 
 
 class mixer():
@@ -101,7 +122,7 @@ class mixer():
         self.chAmp=chAmp
         self.vAmp=vAmp
         #signalcore setup
-        self.power=power
+        self.power=min(max_power,power)
         self.max_power=max_power
         #convert freq to ghz
         if freq>1e9:

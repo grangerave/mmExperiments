@@ -45,6 +45,83 @@ def floor10(x):
 # support for turning instruments on/off when waiting for cycle
 # wrapper for experiment class
 # call acquireInCycle() instead of acquire()
+# NOTE: uses multiplier instead of mixer!
+
+class mmTwoToneExperiment(FridgeExperiment):
+    def __init__(self,InstrumentDict, path='', prefix='Test', dataFolder='data',seqFolder='sequences',config_file=None, progress=None,debug=False,**kwargs):
+        super().__init__(path=path,dataFolder=dataFolder,prefix=prefix,config_file=config_file,progress=progress,**kwargs)
+        self.seqFolder=seqFolder
+        #cache reference to instruments
+        self.PNAX = InstrumentDict['VNA']
+        self.mult = InstrumentDict['multiplier']
+        self.mult.bk.Remote()
+        #self.tek = InstrumentDict['tek']
+
+        if debug:
+            print(self.PNAX.get_id())
+
+    def on(self,multiplier=True,quiet=False,stabilize_time=None):
+        if stabilize_time is None: stabilize_time=self.cfg.hardware.stabilize_time
+        if not quiet: print('Turning Instruments ON')
+        self.PNAX.set_output(True)
+        self.PNAX.set_sweep_mode('CONT')
+        if multiplier:
+            self.mult.on(stabilize=stabilize_time)
+
+    def off(self,quiet=False):
+        if not quiet: print('Turning Instruments OFF')
+        self.PNAX.set_sweep_mode('HOLD')
+        self.PNAX.set_output(False)
+        self.mult.off()
+
+    def prep(self,setVNApulse=True,setFreqs=True):
+        #update config values with device index
+        try:
+            device_n = self.cfg.expt.device_n
+        except:
+            print('device_n not defined! Assuming 0')
+            device_n=0
+        for key, value in self.cfg.device.readout.items():  #support 1 level of dict in readout
+            if isinstance(value, list):
+                self.cfg.device.readout.update({key: value[device_n]})
+
+        if setFreqs:
+            self.setup_freq_and_power()
+
+    def setup_freq_and_power(self):
+        """
+        #assume initial part of prep() was already run
+        #needs to have expt dictionary set in cfg with the following:
+        expt = dict(
+            device_n: device index
+            nPtavg: point averages (fastest)
+            nAvgs: points in sweep averages (fast)
+            #optional:
+                ifbw: VNA ifbw
+                read_power: VNA readout power
+                probe_LO_freq: amc mixer LO frequency
+        )
+        """
+        self.PNAX.set_span(0)
+        if 'ifbw' in self.cfg.expt.keys():
+            self.PNAX.set_ifbw(self.cfg.expt.ifbw)
+        else:
+            self.PNAX.set_ifbw(self.cfg.device.readout.ifbw)
+        #TODO configure VNA if path
+        if 'read_power' in self.cfg.expt.keys():
+            self.PNAX.set_power(self.cfg.expt.read_power)
+        else:
+            self.PNAX.set_power(self.cfg.device.readout.power)
+        self.PNAX.set_center_frequency(self.cfg.device.readout.freq*1e9)
+        #TODO need to handle readout frequency sideband
+        self.PNAX.set_average_state(True)
+        self.PNAX.set_averages_and_group_count(self.cfg.expt.nPtavg)
+        self.PNAX.set_sweep_points(self.cfg.expt.nAvgs)
+
+# --------------- Parent Experiment Class ---------------
+# support for turning instruments on/off when waiting for cycle
+# wrapper for experiment class
+# call acquireInCycle() instead of acquire()
 
 class mmPulseExperiment(FridgeExperiment):
     def __init__(self,InstrumentDict, path='', prefix='Test', dataFolder='data',seqFolder='sequences',config_file=None, progress=None,debug=False,**kwargs):
@@ -196,11 +273,13 @@ class mmPulseExperiment(FridgeExperiment):
         self.amcMixer.set_frequency(self.lo_freq_qubit*1e9)
 
 
-    def load_pulse(self,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,ramp=0.1,phase=0,pulse_name=None,quiet=False):
+    def load_pulse(self,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,ramp=0.1,phase=0,pulse_name=None,pulse_count=None,quiet=False):
         #override for more complicated pulses
         self.awg_dt = self.cfg.hardware.awg_info.tek70001a.dt
         self.sequencer = Sequencer(list(self.cfg.hardware.awg_channels.keys()),self.cfg.hardware.awg_channels,self.cfg.hardware.awg_info,{})
         
+        if pulse_count is None:
+            pulse_count = self.cfg['hardware']['pulse_count']
         if pulses is not None:
             #feed the pulses into the sequencer
             for pulse in pulses:
@@ -223,6 +302,10 @@ class mmPulseExperiment(FridgeExperiment):
 
             self.sequencer.new_sequence(floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10) -pulse.get_length()-delay)
             self.sequencer.append('Ch1', pulse)
+            inter_pulse_delay = floor10(self.cfg['hardware']['period'])- pulse.get_length()
+            for i in range(pulse_count-1):
+                self.sequencer.append('Ch1',Idle(inter_pulse_delay))
+                self.sequencer.append('Ch1',pulse)
 
         self.sequencer.end_sequence(0.1)#pads pulse with 0.1ns of 0s
         self.multiple_sequences=self.sequencer.complete()
@@ -239,16 +322,24 @@ class mmPulseExperiment(FridgeExperiment):
         self.tek.run()
         time.sleep(self.cfg.hardware.awg_load_time)
 
-    def plot_pulses(self,stagger=0.25):
+    def plot_pulses(self,stagger=0.25,pulse_count=1,cutoff_length=200):
         plt.figure(figsize=(18,4))
         plt.subplot(111, title=f"Pulse Timing", xlabel="t (ns)")
-        plt.plot(np.arange(0,len(self.multiple_sequences[0]['Ch1']))*self.awg_dt,self.multiple_sequences[0]['Ch1'])
-        readout_ptx=[0.,self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
-            self.cfg.hardware.awg_offset+self.cfg.device.readout.delay+self.cfg.device.readout.width,
-            self.cfg.hardware.awg_info.tek70001a.dt * self.cfg.hardware.awg_info.tek70001a.min_samples]
-        readout_pty=[x + stagger for x in [0,0,.5,.5,0,0]]
+        trunc_len = min(len(self.multiple_sequences[0]['Ch1']),int(cutoff_length/self.awg_dt))
+        print(trunc_len)
+        plt.plot(np.arange(0,trunc_len)*self.awg_dt,self.multiple_sequences[0]['Ch1'][:trunc_len])
+        readout_ptx=[0.]
+        readout_pty = [0.]
+        for i in range(pulse_count):
+            for x in [self.cfg.hardware.awg_offset-(self.cfg.hardware.awg_trigger_time % 10)+self.cfg.device.readout.delay,
+            self.cfg.hardware.awg_offset-(self.cfg.hardware.awg_trigger_time % 10)+self.cfg.device.readout.delay,
+            self.cfg.hardware.awg_offset-(self.cfg.hardware.awg_trigger_time % 10)+self.cfg.device.readout.delay+self.cfg.device.readout.width,
+            self.cfg.hardware.awg_offset-(self.cfg.hardware.awg_trigger_time % 10)+self.cfg.device.readout.delay+self.cfg.device.readout.width,
+            max(self.cfg.hardware.awg_info.tek70001a.dt * self.cfg.hardware.awg_info.tek70001a.min_samples,
+                self.cfg.hardware.awg_offset-(self.cfg.hardware.awg_trigger_time % 10)+self.cfg.device.readout.delay+self.cfg.device.readout.width)]:
+                readout_ptx.append(x+self.cfg.hardware.period*i)
+            for y in [0,.5,.5,0,0]:
+                readout_pty.append(y)
         plt.plot(readout_ptx,readout_pty)
         plt.xlabel('t (ns)')    
         plt.show()
