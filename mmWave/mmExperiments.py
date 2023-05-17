@@ -14,8 +14,8 @@ from experiments.fridgeExperiment import FridgeExperiment, waitForCycle
 
 #for tek70001a
 from experiments.PulseExperiments.sequencer import Sequencer
-from experiments.PulseExperiments.pulse_classes import Gauss, Square, Idle
-from instruments.awg.Tek70001 import write_Tek70001_sequence
+from experiments.PulseExperiments.pulse_classes import Gauss, Square, Idle, Zeroes
+from instruments.awg.Tek70001 import write_Tek70001_sequence, write_Tek70001_sequence_batch
 from instruments.awg.Tek70001 import Tek70001
 
 # --------------- Helper functions ---------------
@@ -272,7 +272,7 @@ class mmPulseExperiment(FridgeExperiment):
                 self.lo_freq_qubit = self.cfg.device.qubit.f_ge + self.cfg.device.qubit.if_freq
         self.amcMixer.set_frequency(self.lo_freq_qubit*1e9)
 
-
+    #for loading and running a single pulse
     def load_pulse(self,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,ramp=0.1,phase=0,pulse_name=None,pulse_count=None,quiet=False):
         #override for more complicated pulses
         self.awg_dt = self.cfg.hardware.awg_info.tek70001a.dt
@@ -289,7 +289,115 @@ class mmPulseExperiment(FridgeExperiment):
             #define the pulses
             if type == 'square':
                 #Square(max_amp, flat_len, ramp_sigma_len, cutoff_sigma, freq, phase, phase_t0 = 0, dt=None)
-                pulse = Square(amp,sigma,ramp,1,self.cfg.device.qubit.if_freq,phase,dt=self.awg_dt)
+                pulse = Square(amp,sigma,ramp,sigma_cutoff,self.cfg.device.qubit.if_freq,phase,dt=self.awg_dt)
+            elif type == 'gauss':
+                pulse = Gauss(amp,sigma,sigma_cutoff,self.cfg.device.qubit.if_freq,phase)
+            else:
+                print('Error: could not interpret pulse type!')
+            if pulse is not None: self.pulse_length = pulse.get_length() # in ns?
+
+            #pulse is too long! may need to auto-adjust the trig delay (needs to be a multiple of 10)
+            if floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10) < self.pulse_length+delay:
+                print('Warning: pulse is longer than awg_offset!')
+
+            pulse.generate_pulse_array(dt=self.cfg['hardware']['awg_info']['tek70001a']['dt'])
+
+            #initial_delay = floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10) -pulse.get_length()-delay
+            initial_points = int(self.cfg['hardware']['awg_info']['tek70001a']['inverse_dt'])*int(np.round(floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10)-delay))-len(pulse.t_array)
+            self.sequencer.new_sequence(points=initial_points)
+            self.sequencer.append('Ch1', pulse)
+            #inter_pulse_delay = floor10(self.cfg['hardware']['period'])- pulse.get_length()
+            inter_pulse_points = int(floor10(self.cfg['hardware']['period']))*int(self.cfg['hardware']['awg_info']['tek70001a']['inverse_dt'])-len(pulse.t_array)
+            for i in range(pulse_count-1):
+                #self.sequencer.append('Ch1',Idle(inter_pulse_delay))
+                self.sequencer.append('Ch1',Zeroes(inter_pulse_points))
+                self.sequencer.append('Ch1',pulse)
+        self.sequencer.end_sequence(0.1)# padding
+        self.multiple_sequences=self.sequencer.complete()
+
+        if pulse_name is None:
+            #todo shorter names
+            pulse_name='%s_s%1.1fns_%0.2fx_d%dns_%.2fGHz'%(type,sigma,amp,delay,self.cfg.device.qubit.if_freq)
+        write_Tek70001_sequence([self.multiple_sequences[0]['Ch1']],os.path.join(self.path, self.seqFolder), pulse_name,awg=self.tek,quiet=quiet)
+        self.tek.prep_experiment()
+        #note need to do tek.run after this
+
+    def load_pulse_and_run(self,**kwargs):
+        self.load_pulse(**kwargs)
+        self.tek.set_enabled(1,'on')
+        self.tek.run()
+        time.sleep(self.cfg.hardware.awg_load_time)
+
+    #for loading and running one pulse of many
+    def write_pulse_batch(self,number=0,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,ramp=0.1,phase=0,pulse_name=None,pulse_count=None,quiet=False):
+        #override for more complicated pulses
+        self.awg_dt = self.cfg.hardware.awg_info.tek70001a.dt
+        self.sequencer = Sequencer(list(self.cfg.hardware.awg_channels.keys()),self.cfg.hardware.awg_channels,self.cfg.hardware.awg_info,{})
+        self.multiple_sequences = []
+        if pulse_count is None:
+            pulse_count = self.cfg['hardware']['pulse_count']
+        if pulses is not None:
+            #feed the pulses into the sequencer
+            for pulse in pulses:
+                self.sequencer.append('Ch1',pulse)
+        else:
+            pulse = None
+            #define the pulses
+            if type == 'square':
+                #Square(max_amp, flat_len, ramp_sigma_len, cutoff_sigma, freq, phase, phase_t0 = 0, dt=None)
+                pulse = Square(amp,sigma,ramp,sigma_cutoff,self.cfg.device.qubit.if_freq,phase,dt=self.awg_dt)
+            elif type == 'gauss':
+                pulse = Gauss(amp,sigma,sigma_cutoff,self.cfg.device.qubit.if_freq,phase)
+            else:
+                print('Error: could not interpret pulse type!')
+            if pulse is not None: self.pulse_length = pulse.get_length() # in ns?
+
+            #pulse is too long! may need to auto-adjust the trig delay (needs to be a multiple of 10)
+            if floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10) < self.pulse_length+delay:
+                print('Warning: pulse is longer than awg_offset!')
+
+            pulse.generate_pulse_array(dt=self.cfg['hardware']['awg_info']['tek70001a']['dt'])
+
+            #initial_delay = floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10) -pulse.get_length()-delay
+            initial_points = int(self.cfg['hardware']['awg_info']['tek70001a']['inverse_dt'])*int(np.round(floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10)-delay))-len(pulse.t_array)
+            self.sequencer.new_sequence(points=initial_points)
+            self.sequencer.append('Ch1', pulse)
+            #print(len(self.sequencer.pulse_array_list['Ch1'][0]),',',len(self.sequencer.pulse_array_list['Ch1'][1]),
+            #      ',',len(self.sequencer.pulse_array_list['Ch1'][0])+len(self.sequencer.pulse_array_list['Ch1'][1]))
+            #inter_pulse_delay = floor10(self.cfg['hardware']['period'])- pulse.get_length()
+            inter_pulse_points = int(floor10(self.cfg['hardware']['period']))*int(self.cfg['hardware']['awg_info']['tek70001a']['inverse_dt'])-len(pulse.t_array)
+            for i in range(pulse_count-1):
+                #self.sequencer.append('Ch1',Idle(inter_pulse_delay))
+                self.sequencer.append('Ch1',Zeroes(inter_pulse_points))
+                self.sequencer.append('Ch1',pulse)
+        self.sequencer.end_sequence(0.1)# padding
+        self.multiple_sequences=self.sequencer.complete()
+
+        if pulse_name is None:
+            pulse_name='%s_%.2fGHz'%(type,self.cfg.device.qubit.if_freq)
+        write_Tek70001_sequence_batch(number,[seq['Ch1'] for seq in self.multiple_sequences],os.path.join(self.path, self.seqFolder), pulse_name,awg=self.tek,quiet=quiet)
+        #note: need to do tek.prep_experiment
+        #note need to do tek.run after this
+
+    #--------------- Warning: CURRENTLY DOES NOT WORK!! -----------------
+    #load a sequence: one single pulse then another pulse for repeating
+    def write_pulse_batch_repeated(self,number=0,pulses=None,delay=0.0,type=None,sigma=None,sigma_cutoff=3,amp=1.0,ramp=0.1,phase=0,pulse_name=None,pulse_count=None,quiet=False):
+        #override for more complicated pulses
+        self.awg_dt = self.cfg.hardware.awg_info.tek70001a.dt
+        self.sequencer = Sequencer(list(self.cfg.hardware.awg_channels.keys()),self.cfg.hardware.awg_channels,self.cfg.hardware.awg_info,{})
+        self.multiple_sequences = []
+        if pulse_count is None:
+            pulse_count = self.cfg['hardware']['pulse_count']
+        if pulses is not None:
+            #feed the pulses into the sequencer
+            for pulse in pulses:
+                self.sequencer.append('Ch1',pulse)
+        else:
+            pulse = None
+            #define the pulses
+            if type == 'square':
+                #Square(max_amp, flat_len, ramp_sigma_len, cutoff_sigma, freq, phase, phase_t0 = 0, dt=None)
+                pulse = Square(amp,sigma,ramp,sigma_cutoff,self.cfg.device.qubit.if_freq,phase,dt=self.awg_dt)
             elif type == 'gauss':
                 pulse = Gauss(amp,sigma,sigma_cutoff,self.cfg.device.qubit.if_freq,phase)
             else:
@@ -302,22 +410,26 @@ class mmPulseExperiment(FridgeExperiment):
 
             self.sequencer.new_sequence(floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10) -pulse.get_length()-delay)
             self.sequencer.append('Ch1', pulse)
+            #print(len(self.sequencer.pulse_array_list['Ch1']))
             inter_pulse_delay = floor10(self.cfg['hardware']['period'])- pulse.get_length()
-            for i in range(pulse_count-1):
-                self.sequencer.append('Ch1',Idle(inter_pulse_delay))
+            if pulse_count > 1:
+                #add period to pulse (should get up to min cycles) and save
+                self.sequencer.end_sequence(inter_pulse_delay-self.cfg['hardware']['awg_padding'])
+                self.multiple_sequences.append(self.sequencer.complete()[0])
+                #TODO warn if not long enough!
+                self.sequencer.new_sequence(self.cfg['hardware']['awg_padding'])
                 self.sequencer.append('Ch1',pulse)
-
-        self.sequencer.end_sequence(0.1)#pads pulse with 0.1ns of 0s
-        self.multiple_sequences=self.sequencer.complete()
+        self.sequencer.end_sequence(0.0)#finish pulse- no padding
+        self.multiple_sequences.append(self.sequencer.complete()[0])
 
         if pulse_name is None:
-            pulse_name='Pulse_%s_s%1.1fns_%0.2fx_d%dns_%.2fGHz'%(type,sigma,amp,delay,self.cfg.device.qubit.if_freq)
-        write_Tek70001_sequence([self.multiple_sequences[0]['Ch1']],os.path.join(self.path, self.seqFolder), pulse_name,awg=self.tek,quiet=quiet)
-        self.tek.prep_experiment()
+            pulse_name='%s_%.2fGHz'%(type,self.cfg.device.qubit.if_freq)
+        write_Tek70001_sequence_batch(number,[seq['Ch1'] for seq in self.multiple_sequences],os.path.join(self.path, self.seqFolder), pulse_name,awg=self.tek,quiet=quiet,last_repeats=pulse_count-1)
+        #note: need to do tek.prep_experiment
         #note need to do tek.run after this
 
-    def load_pulse_and_run(self,**kwargs):
-        self.load_pulse(**kwargs)
+    def load_experiment_and_run(self,number=0):
+        self.tek.load_experiment(number)#blocks
         self.tek.set_enabled(1,'on')
         self.tek.run()
         time.sleep(self.cfg.hardware.awg_load_time)

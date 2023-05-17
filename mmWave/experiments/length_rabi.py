@@ -54,6 +54,7 @@ class LengthRabiExperiment(mmPulseExperiment):
         if 'phase' not in self.cfg.expt: self.cfg.expt.phase = 0.0
         if 'delay' not in self.cfg.expt: self.cfg.expt.delay = 0.0
         if 'sigma_cutoff' not in self.cfg.expt: self.cfg.expt.sigma_cutoff=3
+        if 'ramp' not in self.cfg.expt: self.cfg.expt.ramp = 0.1
 
         #figure out pulse domain
         divN = 1
@@ -68,20 +69,28 @@ class LengthRabiExperiment(mmPulseExperiment):
 
         #turn on and stabilize
         if not start_on:
-            self.on(quiet = not progress,tek=True)
+            self.on(quiet = not progress,stabilize_time=2,tek=False)
+        
+        #load waveforms
+        self.tek.pre_load()
+        for exp_n,sigma in tqdm(enumerate(xpts),disable=not progress,desc='Loading Waveforms'):
+            self.write_pulse_batch(exp_n,type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                    amp=1/divN,ramp=self.cfg.expt.ramp,phase=self.cfg.expt.phase,quiet=True)
+
+        
 
         data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
         for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress):
 
             data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
-            for sigma in tqdm(xpts, disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
+            for exp_n,sigma in tqdm(enumerate(xpts), disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
                 #update delay
                 #self.tek.stop()
                 self.tek.set_amplitude(1,awg_gain)
-                self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                    amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
-                #wait for tek amplitude to set
-                time.sleep(self.cfg.hardware.awg_update_time)
+                #self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                #    amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
+                #load experiment waveform
+                self.load_experiment_and_run(exp_n)
                 
                 #plot pulses if first time
                 if plot_pulse and not self.pulses_plotted: 
@@ -192,6 +201,7 @@ class LengthFreqRabiExperiment(mmPulseExperiment):
         if 'delay' not in self.cfg.expt: self.cfg.expt.delay = 0.0
         if 'phase' not in self.cfg.expt: self.cfg.expt.phase = 0.0
         if 'sigma_cutoff' not in self.cfg.expt: self.cfg.expt.sigma_cutoff=3
+        if 'ramp' not in self.cfg.expt: self.cfg.expt.ramp = 0.1
 
         #figure out pulse domain
         divN = 1
@@ -205,7 +215,13 @@ class LengthFreqRabiExperiment(mmPulseExperiment):
         self.cfg.expt.awg_gain = awg_gain
 
         if not start_on:
-            self.on()
+            self.on(quiet = not progress,stabilize_time=2,tek=False)
+
+        #load waveforms
+        self.tek.pre_load()
+        for exp_n,sigma in tqdm(enumerate(xpts),disable=not progress,desc='Loading Waveforms'):
+            self.write_pulse_batch(exp_n,type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                    amp=1/divN,ramp=self.cfg.expt.ramp,phase=self.cfg.expt.phase,quiet=True)
 
         data={"xpts":[],"fpts":[],"avgi":[], "avgq":[], "amps":[], "phases":[]}
 
@@ -249,14 +265,14 @@ class LengthFreqRabiExperiment(mmPulseExperiment):
         for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress):
 
             data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
-            for sigma in tqdm(xpts, disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
+            for exp_n,sigma in tqdm(enumerate(xpts), disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
                 #update delay
                 #self.tek.stop()
                 self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
-                self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                    amp=1/self.cfg.expt.divN,phase=self.cfg.expt.phase,quiet=True)
-                #wait for tek amplitude to set
-                time.sleep(self.cfg.hardware.awg_update_time)
+                #self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                #    amp=1/self.cfg.expt.divN,phase=self.cfg.expt.phase,quiet=True)
+                #load experiment waveform
+                self.load_experiment_and_run(exp_n)
                 
                 #plot pulses if first time
                 if plot_pulse and not self.pulses_plotted: 

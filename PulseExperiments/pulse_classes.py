@@ -234,6 +234,39 @@ class Idle(Pulse):
 
     def get_length(self):
         return self.time
+    
+class Zeroes(Pulse):
+    def __init__(self, points:int, dt=None, plot=False):
+        self.points = points
+        self.dt = dt
+        self.plot = plot
+
+        self.t0 = 0
+
+    def get_pulse_array(self):
+        pulse_array = np.zeros_like(self.t_array)
+
+        return pulse_array
+
+    def get_length(self):
+        return self.time
+    
+    def generate_pulse_array(self, t0=0, dt=None):
+        if dt is not None:
+            self.dt = dt
+            self.time = self.points*self.dt
+        if self.dt is None:
+            raise ValueError('dt is not specified.')
+
+        self.t0 = t0
+        self.t_array = self.get_t_array()
+        self.pulse_array = self.get_pulse_array()
+
+        if self.plot:
+            self.plot_pulse()
+
+    def get_t_array(self):
+        return self.dt * np.arange(self.points) + self.t0
 
 
 if __name__ == "__main__":

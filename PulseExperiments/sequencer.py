@@ -6,9 +6,9 @@ import os
 path = os.getcwd()
 
 try:
-    from .pulse_classes import Gauss, Idle, Ones, Square
+    from .pulse_classes import Gauss, Idle, Ones, Square, Zeroes
 except:
-    from pulse_classes import Gauss, Idle, Ones, Square
+    from pulse_classes import Gauss, Idle, Ones, Square, Zeroes
 
 
 class Sequencer:
@@ -30,10 +30,13 @@ class Sequencer:
         self.multiple_sequences = []
 
     #def new_sequence(self, sequences):
-    def new_sequence(self,time=100):
+    def new_sequence(self,time=100,points=None):
         self.pulse_array_list = {}
         for channel in self.channels:
-            idle = Idle(time=time, dt=self.channels_awg_info[channel]['dt'])
+            if points is not None:
+                idle = Zeroes(points,dt=self.channels_awg_info[channel]['dt'])
+            else:
+                idle = Idle(time=time, dt=self.channels_awg_info[channel]['dt'])
             idle.generate_pulse_array()
             self.pulse_array_list[channel] = [idle.pulse_array]
 
@@ -131,7 +134,8 @@ class Sequencer:
 
     def end_sequence(self,time=100):
         for channel in self.channels:
-            self.append(channel,Idle(time=time))
+            if time > 0:
+                self.append(channel,Idle(time=time))
         sequence = self.get_sequence()
         sequence = self.rectify_pulse_len(sequence)
 

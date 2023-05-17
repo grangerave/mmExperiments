@@ -70,8 +70,13 @@ class PulseProbeExperiment(mmPulseExperiment):
 
         self.tek.set_amplitude(1,awg_gain)
         #load the first pulse
-        self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+        #self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+        #    amp=1/divN,phase=self.cfg.expt.phase)
+        #testing
+        self.tek.pre_load()
+        self.write_pulse_batch(0,type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
             amp=1/divN,phase=self.cfg.expt.phase)
+        self.load_experiment_and_run(0)
 
         if plot_pulse and not self.pulses_plotted: 
             self.plot_pulses()
