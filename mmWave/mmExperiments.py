@@ -175,6 +175,43 @@ class mmPulseExperiment(FridgeExperiment):
         if setVNApulse: self.setVNApulsed()
         if setFreqs: self.setup_freq_and_power()
 
+    def read_data_fast(self,sweep_points=None,channel=1,timeout=None,data_format='binary'):
+        #reads data off VNA screen (optimized)
+        #based off of PNAX.read_data()
+        if self.PNAX is None:
+            print('Error, PNAX not defined!')
+            return
+        
+        if data_format is None or not(data_format in ['binary', 'ascii']):
+            data_format = self.PNAX.get_data_transfer_format()
+
+        if sweep_points is None:
+            sweep_points = self.cfg.expt.nAvgs
+
+        self.PNAX.get_operation_completion()
+        self.PNAX.read(timeout=0.1)
+        self.PNAX.write("CALC%d:DATA? FDATA" % channel)
+        data_str = b''.join(self.PNAX.read_lineb(timeout=timeout))
+
+        if data_format == 'binary':
+            len_data_dig = np.int(data_str[1:2])
+            len_data_expected = int(data_str[2: 2+len_data_dig])
+            len_data_actual = len(data_str[2 + len_data_dig:-1])
+            # It may happen that only part of the message is received. We know that this is the case by checking
+            # the checksum. If the received data is too short, just read out again.
+            while len_data_actual != len_data_expected:
+                data_str += b''.join(self.PNAX.read_lineb(timeout=timeout))
+                len_data_actual = len(data_str[2 + len_data_dig:-1])
+
+            data = np.fromstring(data_str, dtype=float, sep=',') if data_format=='ascii' else np.fromstring(data_str[2+len_data_dig:-1], dtype=np.float32)
+            if len(data) == 2 * sweep_points:
+                data = data.reshape((-1, 2))
+                data = data.transpose()
+                return np.vstack((range(sweep_points), data))
+            else:
+                return np.vstack((range(sweep_points), data))
+
+
     def setVNApulsed(self):
         self.PNAX.set_timeout(120)
         

@@ -99,7 +99,7 @@ class LengthRabiExperiment(mmPulseExperiment):
 
                 self.PNAX.set_sweep_mode('SING')
                 #set format = polar?
-                response = self.PNAX.read_data()
+                response = self.read_data_fast()#self.PNAX.read_data()
                 avgi = np.mean(response[1])
                 avgq = np.mean(response[2])
                 amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
@@ -281,7 +281,7 @@ class LengthFreqRabiExperiment(mmPulseExperiment):
 
                 self.PNAX.set_sweep_mode('SING')
                 #set format = polar?
-                response = self.PNAX.read_data()
+                response = self.read_data_fast()#self.PNAX.read_data()
                 avgi = np.mean(response[1])
                 avgq = np.mean(response[2])
                 amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
