@@ -54,6 +54,7 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
         if 'delay' not in self.cfg.expt: self.cfg.expt.delay = 0.0
         if 'phase' not in self.cfg.expt: self.cfg.expt.phase = 0.0
         if 'sigma_cutoff' not in self.cfg.expt: self.cfg.expt.sigma_cutoff=3
+        if 'ramp' not in self.cfg.expt: self.cfg.expt.ramp = 0.1
 
         #figure out first domain
         divN0 = 1
@@ -76,7 +77,7 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
             #load the first pulse
             self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
             self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                amp=1/divN,phase=self.cfg.expt.phase)
+                amp=1/divN,ramp=self.cfg.expt.ramp,phase=self.cfg.expt.phase)
 
             if plot_pulse and not self.pulses_plotted: 
                 self.plot_pulses()
@@ -93,7 +94,7 @@ class AmplitudeRabiSegmentExperiment(mmPulseExperiment):
                     self.tek.stop()
                     self.tek.set_amplitude(1,awg_gain)
                     self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                        amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
+                        amp=1/divN,ramp=self.cfg.expt.ramp,phase=self.cfg.expt.phase,quiet=True)
                 else:
                     self.tek.set_amplitude(1,awg_gain)
                 #wait for tek amplitude to set
@@ -184,7 +185,7 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
         self.maxTargetTemp=0.90
 
     #override
-    def acquire(self, progress=False,sub_progress=False,plot_pulse=False,start_on=False,leave_on=False):
+    def acquire(self, progress=False,sub_progress=False,plot_pulse=False,start_on=False,leave_on=False,sub_plot=False):
         fpts= self.cfg.expt["start_f"]+ self.cfg.expt["step_f"]*np.arange(self.cfg.expt["expts_f"])
         if 'stop_gain' in self.cfg.expt:
             if 'step_gain' in self.cfg.expt:
@@ -205,11 +206,12 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
         if 'delay' not in self.cfg.expt: self.cfg.expt.delay = 0.0
         if 'phase' not in self.cfg.expt: self.cfg.expt.phase = 0.0
         if 'sigma_cutoff' not in self.cfg.expt: self.cfg.expt.sigma_cutoff=3
+        if 'ramp' not in self.cfg.expt: self.cfg.expt.ramp = 0.1
 
         if not start_on:
             self.on()
 
-        data={"xpts":[],"fpts":[],"avgi":[], "avgq":[], "amps":[], "phases":[]}
+        self.data={"xpts":xpts,"fpts":fpts,"avgi":[], "avgq":[], "amps":[], "phases":[]}
 
         for f in tqdm(fpts,disable=not progress):
             if f>1e9: f=f/1e9   #correct for freq in Hz
@@ -227,24 +229,26 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
                 result = self.acquire_pt(xpts,plot_pulse=plot_pulse,progress=sub_progress)
                 if self.waitForCycle(**self.fridge_config):
                     break   #the temperature is good. Proceed
-            data["avgi"].append(result["avgi"])
-            data["avgq"].append(result["avgq"])
-            data["amps"].append(result["amps"])
-            data["phases"].append(result["phases"])
+            self.data["avgi"].append(result["avgi"])
+            self.data["avgq"].append(result["avgq"])
+            self.data["amps"].append(result["amps"])
+            self.data["phases"].append(result["phases"])
 
-        
-        data["xpts"] = xpts #1D array
-        data["fpts"] = fpts #1D array
+            if sub_plot:
+                plt.figure(figsize=(12,5))
+                plt.subplot(111, title=f"Length Rabi {f}GHz",xlabel="Pulse Sigma (ns)", ylabel="Amp (Receiver B)")
+                plt.plot(xpts,result["amps"],'o-')
+                plt.show()
 
-        for k, a in data.items():
-            data[k]=np.array(a)
+        for k, a in self.data.items():
+            self.data[k]=np.array(a)
         
-        self.data=data
+        #self.data=data
         #turn off if finished
         if not leave_on:
             self.off(quiet = not progress)
 
-        return data
+        return self.data
 
     def acquire_pt(self,xpts,plot_pulse=False,progress=True):
         #figure out first domain
@@ -264,7 +268,7 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
             #load the first pulse
             self.tek.set_amplitude(1,self.cfg.expt.awg_gain)
             self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
+                amp=1/divN,ramp=self.cfg.expt.ramp,phase=self.cfg.expt.phase,quiet=True)
 
             if plot_pulse and not self.pulses_plotted: 
                 self.plot_pulses()
@@ -281,7 +285,7 @@ class AmplitudeFreqRabiSegmentExperiment(mmPulseExperiment):
                     self.tek.stop()
                     self.tek.set_amplitude(1,awg_gain)
                     self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=self.cfg.expt.delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                        amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
+                        amp=1/divN,ramp=self.cfg.expt.ramp,phase=self.cfg.expt.phase,quiet=True)
                 else:
                     self.tek.set_amplitude(1,awg_gain)
                 #wait for tek amplitude to set

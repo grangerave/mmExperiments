@@ -133,6 +133,11 @@ class mmPulseExperiment(FridgeExperiment):
         self.amcMixer.bk.Remote()
         self.tek = InstrumentDict['tek']
 
+        #flags to turn off mixer, pnax and tek
+        self.PNAX_off = True
+        self.mixer_off = True
+        self.tek_off = True
+
         if debug:
             print(self.PNAX.get_id())
 
@@ -147,10 +152,13 @@ class mmPulseExperiment(FridgeExperiment):
 
     def off(self,quiet=False):
         if not quiet: print('Turning Instruments OFF')
-        self.tek.stop()
-        self.PNAX.set_sweep_mode('HOLD')
-        self.PNAX.set_output(False)
-        self.amcMixer.off()
+        if self.tek_off or self.mixer_off:
+            self.tek.stop()
+        if self.PNAX_off:
+            self.PNAX.set_sweep_mode('HOLD')
+            self.PNAX.set_output(False)
+        if self.mixer_off:
+            self.amcMixer.off()
 
     def prep(self,setVNApulse=True,setFreqs=True):
         #update config values with device index
@@ -343,13 +351,15 @@ class mmPulseExperiment(FridgeExperiment):
             initial_points = int(self.cfg['hardware']['awg_info']['tek70001a']['inverse_dt'])*int(np.round(floor10(self.cfg.hardware.awg_offset) - (self.cfg.hardware.awg_trigger_time % 10)-delay))-len(pulse.t_array)
             self.sequencer.new_sequence(points=initial_points)
             self.sequencer.append('Ch1', pulse)
+            #print(len(self.sequencer.pulse_array_list['Ch1'][0]),',',len(self.sequencer.pulse_array_list['Ch1'][1]),
+            #      ',',len(self.sequencer.pulse_array_list['Ch1'][0])+len(self.sequencer.pulse_array_list['Ch1'][1]))
             #inter_pulse_delay = floor10(self.cfg['hardware']['period'])- pulse.get_length()
             inter_pulse_points = int(floor10(self.cfg['hardware']['period']))*int(self.cfg['hardware']['awg_info']['tek70001a']['inverse_dt'])-len(pulse.t_array)
             for i in range(pulse_count-1):
                 #self.sequencer.append('Ch1',Idle(inter_pulse_delay))
                 self.sequencer.append('Ch1',Zeroes(inter_pulse_points))
                 self.sequencer.append('Ch1',pulse)
-        self.sequencer.end_sequence(0.1)# padding
+        self.sequencer.end_sequence(self.cfg['hardware']['awg_padding'])# padding
         self.multiple_sequences=self.sequencer.complete()
 
         if pulse_name is None:
@@ -407,8 +417,11 @@ class mmPulseExperiment(FridgeExperiment):
                 #self.sequencer.append('Ch1',Idle(inter_pulse_delay))
                 self.sequencer.append('Ch1',Zeroes(inter_pulse_points))
                 self.sequencer.append('Ch1',pulse)
-        self.sequencer.end_sequence(0.1)# padding
+        self.sequencer.end_sequence(self.cfg['hardware']['awg_padding'])# padding
         self.multiple_sequences=self.sequencer.complete()
+
+        #debug
+        #print('Total length =',len(self.multiple_sequences[0]['Ch1']))
 
         if pulse_name is None:
             pulse_name='%s_%.2fGHz'%(type,self.cfg.device.qubit.if_freq)

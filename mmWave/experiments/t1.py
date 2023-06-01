@@ -53,6 +53,7 @@ class T1Experiment(mmPulseExperiment):
         #default values
         if 'phase' not in self.cfg.expt: self.cfg.expt.phase = 0.0
         if 'sigma_cutoff' not in self.cfg.expt: self.cfg.expt.sigma_cutoff=3
+        if 'ramp' not in self.cfg.expt: self.cfg.expt.ramp = 0.1
 
         #figure out pulse domain
         divN = 1
@@ -67,20 +68,25 @@ class T1Experiment(mmPulseExperiment):
 
         #turn on and stabilize
         if not start_on:
-            self.on(quiet = not progress,tek=True)
+            self.on(quiet = not progress,stabilize_time=2,tek=False)
 
+        #load waveforms
+        self.tek.pre_load()
+        for exp_n,delay in tqdm(enumerate(xpts),disable=not progress,desc='Loading Waveforms'):
+            self.write_pulse_batch(exp_n,type=self.cfg.expt.pulse_type,delay=delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                    amp=1/divN,ramp=self.cfg.expt.ramp,phase=self.cfg.expt.phase,quiet=True)
+            
         data={"xpts":np.array(xpts), "avgi":[], "avgq":[], "amps":[], "phases":[]}
         for i in tqdm(range(self.cfg.expt["reps"]),disable=not progress):
 
             data_shot={"avgi":[], "avgq":[], "amps":[], "phases":[]}
-            for delay in tqdm(xpts, disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
+            for exp_n,delay in tqdm(enumerate(xpts), disable=not progress,desc='%d/%d'%(i+1,self.cfg.expt['reps']),leave=False):
                 #update delay
                 #self.tek.stop()
                 self.tek.set_amplitude(1,awg_gain)
-                self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
-                    amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
-                #wait for tek amplitude to set
-                time.sleep(self.cfg.hardware.awg_update_time)
+                #self.load_pulse_and_run(type=self.cfg.expt.pulse_type,delay=delay,sigma=self.cfg.expt.sigma,sigma_cutoff=self.cfg.expt.sigma_cutoff,
+                #    amp=1/divN,phase=self.cfg.expt.phase,quiet=True)
+                self.load_experiment_and_run(exp_n)
                 
                 #plot pulses if first time
                 if plot_pulse and not self.pulses_plotted: 
@@ -89,7 +95,7 @@ class T1Experiment(mmPulseExperiment):
 
                 self.PNAX.set_sweep_mode('SING')
                 #set format = polar?
-                response = self.PNAX.read_data()
+                response = self.read_data_fast()#self.PNAX.read_data()
                 avgi = np.mean(response[1])
                 avgq = np.mean(response[2])
                 amp = np.abs(avgi+1j*avgq) # Calculating the magnitude
@@ -128,16 +134,26 @@ class T1Experiment(mmPulseExperiment):
             
         return data
 
-    def display(self, data=None, fit=True, **kwargs):
+    def display(self, data=None, fit=True, ampPhase=True,**kwargs):
         if data is None:
             data=self.data 
         plt.figure(figsize=(10,8))
-        plt.subplot(211, title="T1", ylabel="I (Receiver B)")
-        plt.plot(data["xpts"], data["avgi"],'o-')
+        
+        if ampPhase:
+            plt.subplot(211, title="T1", ylabel="Amp (Receiver B)")
+            plt.plot(data["xpts"],data["amps"],'o-')
+        else:
+            plt.subplot(211, title="T1", ylabel="I (Receiver B)")
+            plt.plot(data["xpts"], data["avgi"],'o-')
         if fit:
             pass
-        plt.subplot(212, xlabel="Time (ns)", ylabel="Q (Receiver B)")
-        plt.plot(data["xpts"], data["avgq"],'o-')
+        
+        if ampPhase:
+            plt.subplot(212, xlabel="Time (ns)", ylabel="Phase (Receiver B)")
+            plt.plot(data["xpts"],data["phases"],'o-')
+        else:
+            plt.subplot(212, xlabel="Time (ns)", ylabel="Q (Receiver B)")
+            plt.plot(data["xpts"], data["avgq"],'o-')
         if fit:
             pass
         plt.tight_layout()

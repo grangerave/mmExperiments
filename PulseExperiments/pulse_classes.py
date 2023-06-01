@@ -155,7 +155,7 @@ class DRAG(Pulse):
 
     def get_pulse_array(self):
 
-        t_center = self.t0 + 2 * self.sigma_len
+        t_center = self.t0 + self.cutoff_sigma * self.sigma_len
 
         pulse_array_x = self.A * np.exp(
             -1.0 * (self.t_array - t_center) ** 2 / (2 * self.sigma_len ** 2))

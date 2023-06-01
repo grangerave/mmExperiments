@@ -150,7 +150,7 @@ class FridgeExperiment(Experiment):
     def off(self,quiet=False):
         if not quiet: print('Turning Instruments OFF')
 
-    def waitForCycle(self,powerOffonWait=True,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120,quiet=False):
+    def waitForCycle(self,powerOffonWait=True,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=600,tempCheckDelay=500,finalDelay=120,quiet=False):
         # check that temperature didn't start warming up. normally returns True (for use in while loops)
         #print(locals())
         if getCurlTemp()<maxTargetTemp:
