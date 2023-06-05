@@ -47,7 +47,7 @@ def getCurlTemp():
                 return temps['4k_plate']
         except:
             print('error getting temp!')
-            return 4
+            return 0
 
 
 def setFridgeState(state='NONE'):
@@ -142,7 +142,7 @@ def acquireDuringCycle(acquire,onFunc=None,offFunc=None,maxTargetTemp=1.2,maxDes
 class FridgeExperiment(Experiment):
     def __init__(self,fridge_config=None,**kwargs):
         super().__init__(**kwargs)
-        if fridge_config is None: self.fridge_config = dict(powerOffonWait=True,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=1800,tempCheckDelay=500,finalDelay=120)
+        if fridge_config is None: self.fridge_config = dict(powerOffonWait=True,maxTargetTemp=1.2,maxDesorbTemp=4.7,nTimeSteps=30,desorbTime=600,tempCheckDelay=300,finalDelay=120)
 
     def on(self,quiet=False):
         if not quiet: print('Turning Instruments ON')
